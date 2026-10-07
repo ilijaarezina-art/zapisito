@@ -28,6 +28,7 @@ export default function AuthScreen({ onUspesanLogin }: AuthScreenProps) {
   const [brojTelefona, setBrojTelefona] = useState('');
   const [ucitava, setUcitava] = useState(false);
   const [serverUrl, setServerUrl] = useState(DEFAULT_API_URL);
+  const [statusPoruka, setStatusPoruka] = useState<{ tip: 'uspeh' | 'greska'; tekst: string } | null>(null);
 
   const izvrsiAkciju = async () => {
     if (!korisnickoIme.trim() || !lozinka.trim()) {
@@ -65,6 +66,7 @@ export default function AuthScreen({ onUspesanLogin }: AuthScreenProps) {
     }
 
     setUcitava(true);
+    setStatusPoruka(null);
     try {
       const isPhp = serverUrl.includes('.php');
       const endpoint = isPhp
@@ -92,13 +94,17 @@ export default function AuthScreen({ onUspesanLogin }: AuthScreenProps) {
       const data = await res.json();
 
       if (!res.ok) {
-        Alert.alert('Greška', data.message || data.poruka || 'Došlo je do greške.');
+        const poruka = data.message || data.poruka || 'Došlo je do greške.';
+        setStatusPoruka({ tip: 'greska', tekst: poruka });
+        if (Platform.OS !== 'web') Alert.alert('Greška', poruka);
         setUcitava(false);
         return;
       }
 
       if (jeRegistracija) {
-        Alert.alert('Čestitamo!', 'Registracija je uspešna. Sada se možete prijaviti.');
+        const uspehTekst = 'Čestitamo! Registracija je uspešna. Sada se možete prijaviti.';
+        setStatusPoruka({ tip: 'uspeh', tekst: uspehTekst });
+        if (Platform.OS !== 'web') Alert.alert('Čestitamo!', uspehTekst);
         setJeRegistracija(false);
       } else {
         // Uspešan login
@@ -123,10 +129,9 @@ export default function AuthScreen({ onUspesanLogin }: AuthScreenProps) {
         onUspesanLogin(korisnikData);
       }
     } catch (err: any) {
-      Alert.alert(
-        'Greška u povezivanju',
-        'Nije moguće kontaktirati server. Proverite da li je backend server pokrenut.'
-      );
+      const errTekst = 'Nije moguće kontaktirati server. Proverite vezu sa serverom.';
+      setStatusPoruka({ tip: 'greska', tekst: errTekst });
+      if (Platform.OS !== 'web') Alert.alert('Greška u povezivanju', errTekst);
     } finally {
       setUcitava(false);
     }
@@ -150,6 +155,25 @@ export default function AuthScreen({ onUspesanLogin }: AuthScreenProps) {
           <Text style={styles.cardTitle}>
             {jeRegistracija ? 'Nova Registracija (10 besplatnih)' : 'Prijava na nalog'}
           </Text>
+
+          {statusPoruka && (
+            <View
+              style={[
+                styles.statusBanner,
+                statusPoruka.tip === 'uspeh' ? styles.statusUspeh : styles.statusGreska
+              ]}
+            >
+              <Text
+                style={[
+                  styles.statusTekst,
+                  statusPoruka.tip === 'uspeh' ? styles.statusTekstUspeh : styles.statusTekstGreska
+                ]}
+              >
+                {statusPoruka.tip === 'uspeh' ? '✅ ' : '⚠️ '}
+                {statusPoruka.tekst}
+              </Text>
+            </View>
+          )}
 
           <Text style={styles.label}>Korisničko ime *</Text>
           <TextInput
@@ -270,6 +294,32 @@ const styles = StyleSheet.create({
     alignSelf: 'center'
   },
   cardTitle: { fontSize: 20, fontWeight: '700', color: '#FFFFFF', marginBottom: 16 },
+  statusBanner: {
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16
+  },
+  statusUspeh: {
+    backgroundColor: '#052e16',
+    borderWidth: 1,
+    borderColor: '#10b981'
+  },
+  statusGreska: {
+    backgroundColor: '#450a0a',
+    borderWidth: 1,
+    borderColor: '#ef4444'
+  },
+  statusTekst: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center'
+  },
+  statusTekstUspeh: {
+    color: '#34d399'
+  },
+  statusTekstGreska: {
+    color: '#f87171'
+  },
   label: { fontSize: 13, color: '#D4D4D8', marginBottom: 6, fontWeight: '600' },
   input: {
     backgroundColor: '#272730',
