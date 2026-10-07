@@ -32,6 +32,9 @@
         "projectId": "46a06f55-d494-49fc-9f19-d8be3010bc3d"
       }
     },
+    "experiments": {
+      "baseUrl": "/zapisito"
+    },
     "owner": "ilijaarezina"
   }
 }
