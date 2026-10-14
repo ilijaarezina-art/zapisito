@@ -19,6 +19,7 @@ export interface LokalniPodsetnik {
   rok_datum: string | null;
   opis_zadatka: string;
   stavke?: StavkaSpecifikacije[];
+  tip_zabelezke?: 'posao' | 'nabavka' | 'zakazano';
   je_zavrseno: boolean;
   kreirano_na_uredjaju: string;
   is_synced: boolean;

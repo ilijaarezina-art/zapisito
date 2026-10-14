@@ -2,7 +2,7 @@
   "expo": {
     "name": "ZapišiTo",
     "slug": "zapisito",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -13,7 +13,7 @@
     },
     "android": {
       "package": "com.zapisito.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": [
         "RECORD_AUDIO",
         "INTERNET"
@@ -27,6 +27,15 @@
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Dozvolite pristup mikrofonu za glasovno diktiranje naloga, materijala i poslova.",
+          "speechRecognitionPermission": "Dozvolite prepoznavanje govora za automatsko pretvaranje vašeg glasa u pisane zabeleške."
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "46a06f55-d494-49fc-9f19-d8be3010bc3d"

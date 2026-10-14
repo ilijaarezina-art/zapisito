@@ -14,20 +14,22 @@ import { LokalniPodsetnik } from '../services/storage';
 interface NabavkaItem {
   id: string;
   opis: string;
-  iznos: number;
-  valuta: string;
+  kolicina: string;
   posaoNaziv: string;
   klijentIme: string;
   lokacija: string;
+  posaoUuid: string;
 }
 
 interface NabavkaViewProps {
   podsetnici: LokalniPodsetnik[];
+  onOtvoriEdit: (posao: LokalniPodsetnik) => void;
+  onDodajNovuNabavku: () => void;
 }
 
-const STORAGE_KEY_KUPLJENO = 'zapisito_kupljene_stavke_v1';
+const STORAGE_KEY_KUPLJENO = 'zapisito_kupljene_stavke_v2';
 
-export default function NabavkaView({ podsetnici }: NabavkaViewProps) {
+export default function NabavkaView({ podsetnici, onOtvoriEdit, onDodajNovuNabavku }: NabavkaViewProps) {
   const [kupljeneStavke, setKupljeneStavke] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -47,22 +49,33 @@ export default function NabavkaView({ podsetnici }: NabavkaViewProps) {
     await AsyncStorage.setItem(STORAGE_KEY_KUPLJENO, JSON.stringify(azurirano));
   };
 
-  // Izdvajanje svih stavki iz aktivnih poslova
+  // Izdvajamo stavke iz poslova koji su tipa 'nabavka' ILI imaju stavke materijala u poslu
   const sveStavke: NabavkaItem[] = [];
+
   podsetnici
     .filter(p => !p.je_zavrseno)
-    .forEach((posao, pIdx) => {
+    .forEach(posao => {
       if (posao.stavke && posao.stavke.length > 0) {
         posao.stavke.forEach((st, sIdx) => {
           sveStavke.push({
             id: `${posao.uuid_lokalni}_${sIdx}`,
             opis: st.opis,
-            iznos: st.iznos,
-            valuta: st.valuta,
-            posaoNaziv: posao.opis_zadatka || 'Posao',
-            klijentIme: posao.klijent_ime || 'Klijent',
-            lokacija: posao.lokacija || ''
+            kolicina: st.kolicina || (st.iznos > 0 ? `${st.iznos} ${st.valuta}` : '1 kom'),
+            posaoNaziv: posao.opis_zadatka || 'Nabavka',
+            klijentIme: posao.klijent_ime || '',
+            lokacija: posao.lokacija || '',
+            posaoUuid: posao.uuid_lokalni
           });
+        });
+      } else if (posao.tip_zabelezke === 'nabavka') {
+        sveStavke.push({
+          id: `${posao.uuid_lokalni}_0`,
+          opis: posao.opis_zadatka || 'Artikal za nabavku',
+          kolicina: '1 kom',
+          posaoNaziv: 'Lista za prodavnicu',
+          klijentIme: posao.klijent_ime || '',
+          lokacija: posao.lokacija || '',
+          posaoUuid: posao.uuid_lokalni
         });
       }
     });
@@ -71,22 +84,20 @@ export default function NabavkaView({ podsetnici }: NabavkaViewProps) {
   const kupljenoBroj = sveStavke.filter(s => kupljeneStavke[s.id]).length;
   const preostaloBroj = ukupanBroj - kupljenoBroj;
 
-  const ukupnaVrednost = sveStavke.reduce((sum, s) => sum + s.iznos, 0);
-
   const posaljiSpisakNaWhatsapp = () => {
     if (sveStavke.length === 0) return;
 
-    let poruka = `🛒 *SPISAK ZA NABAVKU MATERIJALA*\n`;
+    let poruka = `🛒 *SPISAK ZA KUPOVINU - PRODAVNICA / STOVARIŠTE*\n`;
     poruka += `📅 Datum: ${new Date().toLocaleDateString('sr-RS')}\n`;
     poruka += `------------------------------\n`;
 
-    sveStavke.forEach((s, i) => {
-      const oznaka = kupljeneStavke[s.id] ? '✅' : '⬜';
-      poruka += `${oznaka} ${s.opis} (${s.klijentIme}${s.lokacija ? ` - ${s.lokacija}` : ''})\n`;
+    sveStavke.forEach((s) => {
+      const oznaka = kupljeneStavke[s.id] ? '✅ (KUPLJENO)' : '⬜';
+      poruka += `${oznaka} *${s.opis}* - Količina: ${s.kolicina}${s.klijentIme ? ` [${s.klijentIme}]` : ''}\n`;
     });
 
     poruka += `------------------------------\n`;
-    poruka += `Ukupno stavki: ${ukupanBroj} (Preostalo: ${preostaloBroj})\n`;
+    poruka += `Ukupno artikala: ${ukupanBroj} (Preostalo za kupovinu: ${preostaloBroj})\n`;
 
     const url = `https://wa.me/?text=${encodeURIComponent(poruka)}`;
     Linking.openURL(url).catch(() => {
@@ -98,10 +109,13 @@ export default function NabavkaView({ podsetnici }: NabavkaViewProps) {
     return (
       <View style={styles.prazno}>
         <Text style={styles.praznoIkona}>🛒</Text>
-        <Text style={styles.praznoNaslov}>Nemate materijala za nabavku</Text>
+        <Text style={styles.praznoNaslov}>Lista za kupovinu je prazna</Text>
         <Text style={styles.praznoTekst}>
-          Kada izdiktirate posao sa specifikacijom (npr. "cement 20 džakova, šljunak 4 kubika"), aplikacija automatski kreira vašu šoping listu za stovarište ovde!
+          Izdiktirajte šta vam treba u prodavnici ili na stovarištu (npr. "3 džaka lepka, 2 kante polikolora, 50 tiplova").
         </Text>
+        <TouchableOpacity style={styles.btnDodajPrazno} onPress={onDodajNovuNabavku}>
+          <Text style={styles.btnDodajPraznoTekst}>🎙️ Izdiktiraj novu nabavku</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -111,9 +125,9 @@ export default function NabavkaView({ podsetnici }: NabavkaViewProps) {
       {/* Statistika kartica */}
       <View style={styles.statKutija}>
         <View style={styles.statInfo}>
-          <Text style={styles.statNaslov}>Spisak za stovarište / prodavnicu</Text>
+          <Text style={styles.statNaslov}>🛒 Korpa za stovarište i prodavnicu</Text>
           <Text style={styles.statPodnaslov}>
-            Kupljeno: <Text style={{ color: '#34D399', fontWeight: '800' }}>{kupljenoBroj}</Text> od {ukupanBroj} stavki
+            Kupljeno: <Text style={{ color: '#10B981', fontWeight: '800' }}>{kupljenoBroj}</Text> od {ukupanBroj} artikala
             {preostaloBroj > 0 ? ` (još ${preostaloBroj} za kupovinu)` : ' 🎉 Sve je nabavljeno!'}
           </Text>
         </View>
@@ -123,33 +137,48 @@ export default function NabavkaView({ podsetnici }: NabavkaViewProps) {
         </TouchableOpacity>
       </View>
 
-      {/* Lista stavki */}
+      {/* Lista stavki u stilu artikala u prodavnici */}
       <View style={styles.listaKontejner}>
         {sveStavke.map(st => {
           const jeKupljeno = !!kupljeneStavke[st.id];
 
           return (
-            <TouchableOpacity
+            <View
               key={st.id}
               style={[styles.stavkaRed, jeKupljeno && styles.stavkaRedKupljeno]}
-              onPress={() => prebaciStatusStavke(st.id)}
-              activeOpacity={0.7}
             >
-              <Text style={styles.checkboxIkona}>{jeKupljeno ? '✅' : '⬜'}</Text>
-              <View style={{ flex: 1 }}>
+              <TouchableOpacity
+                style={styles.checkboxTouch}
+                onPress={() => prebaciStatusStavke(st.id)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.checkboxKrug, jeKupljeno && styles.checkboxKrugAktivno]}>
+                  {jeKupljeno && <Text style={styles.kvačica}>✓</Text>}
+                </View>
+              </TouchableOpacity>
+
+              <View style={{ flex: 1, paddingVertical: 4 }}>
                 <Text style={[styles.stavkaOpis, jeKupljeno && styles.stavkaOpisKupljeno]}>
                   {st.opis}
                 </Text>
-                <Text style={styles.stavkaPodaci}>
-                  Za: {st.klijentIme} {st.lokacija ? `(${st.lokacija})` : ''}
-                </Text>
+                <View style={styles.redKolicine}>
+                  <Text style={styles.badgeKolicina}>📦 {st.kolicina}</Text>
+                  {st.klijentIme ? (
+                    <Text style={styles.badgeKlijent}>👤 {st.klijentIme}</Text>
+                  ) : null}
+                </View>
               </View>
-              {st.iznos > 0 && (
-                <Text style={[styles.stavkaCena, jeKupljeno && styles.stavkaCenaKupljeno]}>
-                  {st.iznos.toLocaleString('sr-RS')} {st.valuta}
-                </Text>
-              )}
-            </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.btnEdit}
+                onPress={() => {
+                  const roditelj = podsetnici.find(p => p.uuid_lokalni === st.posaoUuid);
+                  if (roditelj) onOtvoriEdit(roditelj);
+                }}
+              >
+                <Text style={styles.btnEditTekst}>✏️</Text>
+              </TouchableOpacity>
+            </View>
           );
         })}
       </View>
@@ -158,119 +187,87 @@ export default function NabavkaView({ podsetnici }: NabavkaViewProps) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    paddingBottom: 110,
-    width: '100%',
-    maxWidth: 760,
-    alignSelf: 'center'
-  },
+  container: { padding: 16, paddingBottom: 110, maxWidth: 900, width: '100%', alignSelf: 'center' },
+  prazno: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, marginTop: 60 },
+  praznoIkona: { fontSize: 64, marginBottom: 16 },
+  praznoNaslov: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginBottom: 8, textAlign: 'center' },
+  praznoTekst: { fontSize: 14, color: '#A1A1AA', textAlign: 'center', lineHeight: 22, maxWidth: 440, marginBottom: 20 },
+  btnDodajPrazno: { backgroundColor: '#10B981', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12 },
+  btnDodajPraznoTekst: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   statKutija: {
-    backgroundColor: '#181824',
-    padding: 16,
-    borderRadius: 14,
+    backgroundColor: '#1E1E24',
+    padding: 18,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#2F2F42',
+    borderColor: '#2A2A35',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
-    flexWrap: 'wrap',
-    gap: 12
+    marginBottom: 16
   },
-  statInfo: {
-    flex: 1,
-    minWidth: 200
-  },
-  statNaslov: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800'
-  },
-  statPodnaslov: {
-    color: '#A1A1AA',
-    fontSize: 13,
-    marginTop: 4
-  },
+  statInfo: { flex: 1, paddingRight: 10 },
+  statNaslov: { fontSize: 16, fontWeight: '800', color: '#FFFFFF', marginBottom: 4 },
+  statPodnaslov: { fontSize: 13, color: '#94A3B8' },
   btnWhatsapp: {
-    backgroundColor: '#25D366',
+    backgroundColor: '#059669',
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10
   },
-  btnWhatsappTekst: {
-    color: '#000000',
-    fontSize: 13,
-    fontWeight: '800'
-  },
-  listaKontejner: {
-    backgroundColor: '#14141C',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#262636',
-    overflow: 'hidden'
-  },
+  btnWhatsappTekst: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  listaKontejner: { gap: 10 },
   stavkaRed: {
+    backgroundColor: '#18181B',
+    padding: 14,
+    borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
-    borderBottomWidth: 1,
-    borderColor: '#222230',
+    borderWidth: 1,
+    borderColor: '#27272A',
     gap: 12
   },
   stavkaRedKupljeno: {
-    backgroundColor: '#0F1A15',
-    opacity: 0.75
+    backgroundColor: '#121214',
+    borderColor: '#1C1917',
+    opacity: 0.65
   },
-  checkboxIkona: {
-    fontSize: 20
-  },
-  stavkaOpis: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700'
-  },
-  stavkaOpisKupljeno: {
-    color: '#9CA3AF',
-    textDecorationLine: 'line-through'
-  },
-  stavkaPodaci: {
-    color: '#71717A',
-    fontSize: 12,
-    marginTop: 3
-  },
-  stavkaCena: {
-    color: '#34D399',
-    fontSize: 14,
-    fontWeight: '800'
-  },
-  stavkaCenaKupljeno: {
-    color: '#6EE7B7',
-    textDecorationLine: 'line-through'
-  },
-  prazno: {
-    padding: 40,
-    alignItems: 'center',
+  checkboxTouch: { padding: 4 },
+  checkboxKrug: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#52525B',
     justifyContent: 'center',
-    width: '100%',
-    maxWidth: 500,
-    alignSelf: 'center'
+    alignItems: 'center',
+    backgroundColor: '#27272A'
   },
-  praznoIkona: {
-    fontSize: 48,
-    marginBottom: 16
+  checkboxKrugAktivno: {
+    backgroundColor: '#10B981',
+    borderColor: '#10B981'
   },
-  praznoNaslov: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 8,
-    textAlign: 'center'
+  kvačica: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+  stavkaOpis: { fontSize: 16, fontWeight: '700', color: '#F4F4F5' },
+  stavkaOpisKupljeno: { textDecorationLine: 'line-through', color: '#71717A' },
+  redKolicine: { flexDirection: 'row', gap: 8, marginTop: 4, flexWrap: 'wrap' },
+  badgeKolicina: {
+    backgroundColor: '#27272A',
+    color: '#38BDF8',
+    fontSize: 12,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6
   },
-  praznoTekst: {
-    color: '#71717A',
-    fontSize: 13,
-    lineHeight: 20,
-    textAlign: 'center'
-  }
+  badgeKlijent: {
+    backgroundColor: '#27272A',
+    color: '#E2E8F0',
+    fontSize: 12,
+    fontWeight: '600',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6
+  },
+  btnEdit: { padding: 8, borderRadius: 8, backgroundColor: '#27272A' },
+  btnEditTekst: { fontSize: 16 }
 });

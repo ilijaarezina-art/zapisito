@@ -18,9 +18,11 @@ import { StorageService, LokalniPodsetnik, KorisnikCache, LicencaCache } from '.
 import { SyncService, DEFAULT_API_URL } from '../services/sync';
 import { parsirajTekst, ParsiraniPodsetnik } from '../services/parser';
 import { PdfService } from '../services/pdfService';
+import { VoiceService } from '../services/voiceService';
 import VoiceWaveform from '../components/VoiceWaveform';
 import NabavkaView from '../components/NabavkaView';
-import KalendarView from '../components/KalendarView';
+import ZakazaniPosloviView from '../components/ZakazaniPosloviView';
+import SpecifikacijaModal from '../components/SpecifikacijaModal';
 
 interface HomeScreenProps {
   korisnik: KorisnikCache;
@@ -215,95 +217,55 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
         (window as any).SpeechRecognition ||
         (window as any).webkitSpeechRecognition;
       setSpeechPodrzan(!!SpeechRecognition);
+    } else {
+      VoiceService.isAvailable().then(avail => setSpeechPodrzan(avail));
     }
   }, []);
 
-  const pokreniSnimanje = () => {
-    if (Platform.OS === 'web') {
-      const SpeechRecognition =
-        (window as any).SpeechRecognition ||
-        (window as any).webkitSpeechRecognition;
+  const pokreniSnimanje = async () => {
+    setJeSnimanjeAktivno(true);
 
-      if (!SpeechRecognition) {
-        Alert.alert(
-          'Prepoznavanje govora (Firefox)',
-          'Pretraživač Firefox po defaultu nema omogućen Web Speech API.\n\n' +
-          '⭐ Za najbolje iskustvo diktiranja na srpskom otvorite aplikaciju u Google Chrome ili Microsoft Edge gde radi fabrički.\n\n' +
-          '💡 Na Windows-u možete pritisnuti prečicu [Win + H] za trenutno besplatno diktiranje glasom direktno u polje!'
-        );
-        return;
-      }
-
-      try {
-        if (recognitionRef.current) {
-          try {
-            recognitionRef.current.stop();
-          } catch (e) {}
-        }
-
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'sr-RS';
-        recognition.continuous = true;
-        recognition.interimResults = true;
-
-        recognition.onstart = () => {
-          setJeSnimanjeAktivno(true);
-        };
-
-        recognition.onresult = (event: any) => {
-          let transkript = '';
-          for (let i = 0; i < event.results.length; i++) {
-            transkript += event.results[i][0].transcript;
-          }
-          if (transkript.trim()) {
-            rukujIzmenomTeksta(transkript);
-          }
-        };
-
-        recognition.onerror = (event: any) => {
-          console.warn('Mikrofon greška:', event.error);
-          setJeSnimanjeAktivno(false);
-          if (event.error === 'not-allowed') {
-            Alert.alert(
-              'Dozvola za mikrofon',
-              'Molimo vas da odobrite pristup mikrofonu u pretraživaču (ikona mikrofona u adresnoj traci).'
-            );
-          }
-        };
-
-        recognition.onend = () => {
-          setJeSnimanjeAktivno(false);
-        };
-
-        recognition.start();
-        recognitionRef.current = recognition;
+    const uspeh = await VoiceService.startListening({
+      lang: 'sr-RS',
+      onStart: () => {
         setJeSnimanjeAktivno(true);
-      } catch (err) {
-        console.error('Nije uspelo pokretanje mikrofona:', err);
+      },
+      onResult: (transkript: string) => {
+        if (transkript.trim()) {
+          rukujIzmenomTeksta(transkript);
+        }
+      },
+      onError: (err: string) => {
+        console.warn('VoiceService error:', err);
+        setJeSnimanjeAktivno(false);
+        if (err.includes('odbijen') || err.includes('not-allowed')) {
+          Alert.alert(
+            'Dozvola za mikrofon',
+            'Molimo odobrite pristup mikrofonu kako biste mogli da diktirate beleške glasom.'
+          );
+        }
+      },
+      onEnd: () => {
         setJeSnimanjeAktivno(false);
       }
-    } else {
-      // Mobilni uređaji
-      setJeSnimanjeAktivno(true);
+    });
+
+    if (!uspeh) {
+      setJeSnimanjeAktivno(false);
     }
   };
 
   const zaustaviSnimanje = () => {
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {}
-      recognitionRef.current = null;
-    }
+    VoiceService.stopListening();
     setJeSnimanjeAktivno(false);
   };
 
-  const otvoriModalZaGovor = () => {
+  const otvoriModalZaGovor = (podrazumevaniTip: 'posao' | 'nabavka' | 'zakazano' = 'posao') => {
     setModalOtvoren(true);
-    // Automatski pokreni mikrofon
+    // Automatski pokreni nativni ili web mikrofon
     setTimeout(() => {
       pokreniSnimanje();
-    }, 250);
+    }, 200);
   };
 
   const zatvoriModal = () => {
@@ -319,11 +281,12 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
     Alert.alert('Sinhronizacija', rez.poruka);
   };
 
-  // Kada korisnik unese/izgovori tekst, odmah ga u hodu parsiramo
+  // Kada korisnik unese/izgovori tekst, odmah ga u hodu parsiramo u odnosu na trenutni tab
   const rukujIzmenomTeksta = (tekst: string) => {
     setIzgovoreniTekst(tekst);
-    if (tekst.trim().length > 3) {
-      const rez = parsirajTekst(tekst);
+    if (tekst.trim().length > 2) {
+      const tipModa = glavniPrikaz === 'nabavka' ? 'nabavka' : (glavniPrikaz === 'kalendar' ? 'zakazano' : 'posao');
+      const rez = parsirajTekst(tekst, tipModa);
       setParsirano(rez);
     } else {
       setParsirano(null);
@@ -760,7 +723,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
         </Text>
       </View>
 
-      {/* GLAVNI MENI: POSLOVI / ZA NABAVKU / KALENDAR */}
+      {/* GLAVNI MENI: POSAO / NABAVKA / ZAKAZANI POSLOVI */}
       <View style={styles.glavniMeniKontejner}>
         <TouchableOpacity
           style={[styles.glavniMeniTab, glavniPrikaz === 'poslovi' && styles.glavniMeniTabAktivno]}
@@ -768,7 +731,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
           activeOpacity={0.7}
         >
           <Text style={[styles.glavniMeniTekst, glavniPrikaz === 'poslovi' && styles.glavniMeniTekstAktivno]}>
-            📋 Poslovi ({aktivniPoslovi.length})
+            🔨 Posao ({aktivniPoslovi.length})
           </Text>
         </TouchableOpacity>
 
@@ -778,7 +741,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
           activeOpacity={0.7}
         >
           <Text style={[styles.glavniMeniTekst, glavniPrikaz === 'nabavka' && styles.glavniMeniTekstAktivno]}>
-            🛒 Za nabavku
+            🛒 Nabavka
           </Text>
           {brojStavkiZaNabavku > 0 && (
             <View style={styles.badgeBroj}>
@@ -793,22 +756,27 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
           activeOpacity={0.7}
         >
           <Text style={[styles.glavniMeniTekst, glavniPrikaz === 'kalendar' && styles.glavniMeniTekstAktivno]}>
-            📅 Kalendar
+            📅 Zakazani poslovi
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* PRIKAZ 1: ZA NABAVKU */}
+      {/* PRIKAZ 1: ZA NABAVKU (LISTA ARTIKALA ZA STOVARIŠTE / PRODAVNICU) */}
       {glavniPrikaz === 'nabavka' && (
-        <NabavkaView podsetnici={podsetnici} />
+        <NabavkaView
+          podsetnici={podsetnici}
+          onOtvoriEdit={otvoriModalZaIzmenu}
+          onDodajNovuNabavku={() => otvoriModalZaGovor('nabavka')}
+        />
       )}
 
-      {/* PRIKAZ 2: KALENDAR RASPORED */}
+      {/* PRIKAZ 2: ZAKAZANI POSLOVI (IME, PREZIME, TELEFON, ADRESA, NAVIGACIJA, TERMIN) */}
       {glavniPrikaz === 'kalendar' && (
-        <KalendarView
+        <ZakazaniPosloviView
           podsetnici={podsetnici}
           onIzaberiPosao={otvoriModalZaIzmenu}
           onZavrsiPosao={prebaciZavrseno}
+          onDodajZakazani={() => otvoriModalZaGovor('zakazano')}
         />
       )}
 
@@ -1317,221 +1285,23 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
         </View>
       )}
 
-      {/* MODAL: NAKNADNA IZMENA I DORADA UNOSA POSLA */}
+      {/* MODAL: PROFESIONALNI LIST PAPIRA / SPECIFIKACIJA RADOVA I MATERIJALA */}
       {editUnosOtvoren && (
-        <View style={[StyleSheet.absoluteFill, styles.modalOverlay, jeDesktopTablet && styles.modalOverlayDesktop, { zIndex: 9999 }]}>
-          <View style={[styles.modalSadrzaj, jeDesktopTablet && styles.modalSadrzajDesktop]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalNaslov}>✏️ Izmena / Dorada posla</Text>
-              <TouchableOpacity onPress={() => { zaustaviSnimanjePolja(); setEditUnosOtvoren(false); }}>
-                <Text style={styles.modalZatvori}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {snimaPolje !== null && (
-              <View style={styles.snimaPoljeIndicator}>
-                <Text style={styles.snimaPoljeIndicatorTekst}>
-                  🔴 Slušam govor za polje: <Text style={{ fontWeight: 'bold' }}>{snimaPolje.toUpperCase()}</Text>
-                </Text>
-                <VoiceWaveform aktivan={true} boja="#EF4444" />
-              </View>
-            )}
-
-            <ScrollView contentContainerStyle={{ paddingBottom: 25 }}>
-              {/* Ime klijenta */}
-              <Text style={styles.profilLabel}>Ime klijenta / mušterije</Text>
-              <View style={styles.poljeSaMikrofonomRed}>
-                <TextInput
-                  style={[styles.profilInput, styles.inputFlex, snimaPolje === 'ime' && styles.inputSnimaAktivno]}
-                  placeholder="npr. Zoran, Milan..."
-                  placeholderTextColor="#71717A"
-                  value={editImeKlijenta}
-                  onChangeText={setEditImeKlijenta}
-                />
-                <TouchableOpacity
-                  style={[styles.btnMikrofonPolje, snimaPolje === 'ime' && styles.btnMikrofonPoljeAktivno]}
-                  onPress={() => toggleSnimanjePolja('ime')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.btnMikrofonPoljeIkona}>{snimaPolje === 'ime' ? '⏹️' : '🎙️'}</Text>
-                  <Text style={[styles.btnMikrofonPoljeTekst, snimaPolje === 'ime' && styles.btnMikrofonPoljeTekstAktivno]}>
-                    {snimaPolje === 'ime' ? 'Snima...' : 'Glas'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Broj telefona */}
-              <Text style={styles.profilLabel}>Broj telefona klijenta</Text>
-              <View style={styles.poljeSaMikrofonomRed}>
-                <TextInput
-                  style={[styles.profilInput, styles.inputFlex, snimaPolje === 'telefon' && styles.inputSnimaAktivno]}
-                  placeholder="npr. 0641234567"
-                  placeholderTextColor="#71717A"
-                  keyboardType="phone-pad"
-                  value={editTelefonKlijenta}
-                  onChangeText={setEditTelefonKlijenta}
-                />
-                <TouchableOpacity
-                  style={[styles.btnMikrofonPolje, snimaPolje === 'telefon' && styles.btnMikrofonPoljeAktivno]}
-                  onPress={() => toggleSnimanjePolja('telefon')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.btnMikrofonPoljeIkona}>{snimaPolje === 'telefon' ? '⏹️' : '🎙️'}</Text>
-                  <Text style={[styles.btnMikrofonPoljeTekst, snimaPolje === 'telefon' && styles.btnMikrofonPoljeTekstAktivno]}>
-                    {snimaPolje === 'telefon' ? 'Snima...' : 'Glas'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Lokacija */}
-              <Text style={styles.profilLabel}>Lokacija / Mesto rada</Text>
-              <View style={styles.poljeSaMikrofonomRed}>
-                <TextInput
-                  style={[styles.profilInput, styles.inputFlex, snimaPolje === 'lokacija' && styles.inputSnimaAktivno]}
-                  placeholder="npr. Vračar, Novi Beograd..."
-                  placeholderTextColor="#71717A"
-                  value={editLokacija}
-                  onChangeText={setEditLokacija}
-                />
-                <TouchableOpacity
-                  style={[styles.btnMikrofonPolje, snimaPolje === 'lokacija' && styles.btnMikrofonPoljeAktivno]}
-                  onPress={() => toggleSnimanjePolja('lokacija')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.btnMikrofonPoljeIkona}>{snimaPolje === 'lokacija' ? '⏹️' : '🎙️'}</Text>
-                  <Text style={[styles.btnMikrofonPoljeTekst, snimaPolje === 'lokacija' && styles.btnMikrofonPoljeTekstAktivno]}>
-                    {snimaPolje === 'lokacija' ? 'Snima...' : 'Glas'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Iznos cene rada */}
-              <Text style={styles.profilLabel}>Iznos cene / rada</Text>
-              <View style={styles.poljeSaMikrofonomRed}>
-                <TextInput
-                  style={[styles.profilInput, styles.inputFlex, snimaPolje === 'iznos' && styles.inputSnimaAktivno]}
-                  placeholder="npr. 4000 ili 50"
-                  placeholderTextColor="#71717A"
-                  keyboardType="numeric"
-                  value={editIznos}
-                  onChangeText={setEditIznos}
-                />
-                <TouchableOpacity
-                  style={[styles.btnMikrofonPolje, snimaPolje === 'iznos' && styles.btnMikrofonPoljeAktivno]}
-                  onPress={() => toggleSnimanjePolja('iznos')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.btnMikrofonPoljeIkona}>{snimaPolje === 'iznos' ? '⏹️' : '🎙️'}</Text>
-                  <Text style={[styles.btnMikrofonPoljeTekst, snimaPolje === 'iznos' && styles.btnMikrofonPoljeTekstAktivno]}>
-                    {snimaPolje === 'iznos' ? 'Snima...' : 'Glas'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Izbor valute (RSD i EUR - 100% vidljivi na svim ekranima) */}
-              <Text style={styles.profilLabel}>Valuta naplate</Text>
-              <View style={styles.valutaIzborRed}>
-                <TouchableOpacity
-                  style={[styles.valutaVelikoDugme, editValuta === 'RSD' && styles.valutaVelikoDugmeAktivno]}
-                  onPress={() => setEditValuta('RSD')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.valutaZastavica}>🇷🇸</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.valutaVelikiNaslov, editValuta === 'RSD' && styles.valutaVelikiNaslovAktivno]}>
-                      RSD (Dinar)
-                    </Text>
-                  </View>
-                  {editValuta === 'RSD' ? (
-                    <Text style={styles.valutaCekirano}>✓ Izabrano</Text>
-                  ) : null}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.valutaVelikoDugme, editValuta === 'EUR' && styles.valutaVelikoDugmeAktivno]}
-                  onPress={() => setEditValuta('EUR')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.valutaZastavica}>🇪🇺</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.valutaVelikiNaslov, editValuta === 'EUR' && styles.valutaVelikiNaslovAktivno]}>
-                      EUR (€ Evro)
-                    </Text>
-                  </View>
-                  {editValuta === 'EUR' ? (
-                    <Text style={styles.valutaCekirano}>✓ Izabrano</Text>
-                  ) : null}
-                </TouchableOpacity>
-              </View>
-
-              {/* Kapara opcija */}
-              <TouchableOpacity
-                style={styles.kaparaToggleRow}
-                onPress={() => setEditJeKapara(!editJeKapara)}
-                activeOpacity={0.7}
-              >
-                <Text style={{ fontSize: 18 }}>{editJeKapara ? '☑️' : '⬜'}</Text>
-                <Text style={styles.kaparaToggleTekst}>Ovaj iznos je kapara (akontacija)</Text>
-              </TouchableOpacity>
-
-              {/* Opis posla */}
-              <Text style={styles.profilLabel}>Opis radova / zadatka</Text>
-              <View style={styles.poljeSaMikrofonomRed}>
-                <TextInput
-                  style={[
-                    styles.profilInput,
-                    styles.inputFlex,
-                    { minHeight: 80, textAlignVertical: 'top' },
-                    snimaPolje === 'opis' && styles.inputSnimaAktivno
-                  ]}
-                  multiline
-                  placeholder="npr. Zamena ventila, doneti slavinu..."
-                  placeholderTextColor="#71717A"
-                  value={editOpis}
-                  onChangeText={setEditOpis}
-                />
-                <TouchableOpacity
-                  style={[
-                    styles.btnMikrofonPolje,
-                    { height: 80, justifyContent: 'center' },
-                    snimaPolje === 'opis' && styles.btnMikrofonPoljeAktivno
-                  ]}
-                  onPress={() => toggleSnimanjePolja('opis')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.btnMikrofonPoljeIkona}>{snimaPolje === 'opis' ? '⏹️' : '🎙️'}</Text>
-                  <Text style={[styles.btnMikrofonPoljeTekst, snimaPolje === 'opis' && styles.btnMikrofonPoljeTekstAktivno]}>
-                    {snimaPolje === 'opis' ? 'Snima...' : 'Glas'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Dugmad na dnu: Odustani i Sačuvaj */}
-              <View style={styles.modalDugmadRed}>
-                <TouchableOpacity
-                  style={styles.btnModalOdustani}
-                  onPress={() => { zaustaviSnimanjePolja(); setEditUnosOtvoren(false); }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.btnModalOdustaniTekst}>Odustani</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.btnSacuvajProfil, { flex: 1, marginTop: 0 }]}
-                  onPress={sacuvajIzmeneUnosa}
-                  disabled={editCuva}
-                  activeOpacity={0.8}
-                >
-                  {editCuva ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.btnSacuvajProfilTekst}>✓ SAČUVAJ IZMENE</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
+        <SpecifikacijaModal
+          vidljiv={editUnosOtvoren}
+          posao={izabraniPodsetnikZaEdit}
+          korisnik={korisnik}
+          onZatvori={() => {
+            setEditUnosOtvoren(false);
+            setIzabraniPodsetnikZaEdit(null);
+          }}
+          onSacuvaj={async (azuriran) => {
+            await StorageService.azurirajPodsetnik(azuriran.uuid_lokalni, azuriran);
+            await ucitajPodatke();
+            SyncService.izvrsiSinhronizaciju().then(() => ucitajPodatke());
+            Alert.alert('Sačuvano', 'Specifikacija i promene su uspešno ažurirane!');
+          }}
+        />
       )}
     </View>
   );
