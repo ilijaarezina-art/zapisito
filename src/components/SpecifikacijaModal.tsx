@@ -10,10 +10,8 @@ import {
   Platform,
   Alert
 } from 'react-native';
-import { LokalniPodsetnik, StavkaSpecifikacije } from '../services/storage';
+import { LokalniPodsetnik, StavkaSpecifikacije, KorisnikCache } from '../services/storage';
 import { PdfService } from '../services/pdfService';
-import { KorisnikCache } from '../services/storage';
-import VoiceWaveform from './VoiceWaveform';
 
 interface SpecifikacijaModalProps {
   vidljiv: boolean;
@@ -21,8 +19,6 @@ interface SpecifikacijaModalProps {
   korisnik: KorisnikCache;
   onZatvori: () => void;
   onSacuvaj: (azuriran: LokalniPodsetnik) => Promise<void>;
-  onSnimajGlasom?: (polje: 'naziv' | 'klijent' | 'telefon' | 'adresa' | 'novaStavka') => void;
-  aktivnoSnimaPolje?: string | null;
 }
 
 export default function SpecifikacijaModal({
@@ -30,62 +26,81 @@ export default function SpecifikacijaModal({
   posao,
   korisnik,
   onZatvori,
-  onSacuvaj,
-  onSnimajGlasom,
-  aktivnoSnimaPolje
+  onSacuvaj
 }: SpecifikacijaModalProps) {
   if (!vidljiv || !posao) return null;
 
-  const [klijentIme, setKlijentIme] = useState(posao.klijent_ime || '');
-  const [klijentTelefon, setKlijentTelefon] = useState(posao.klijent_telefon || '');
-  const [lokacija, setLokacija] = useState(posao.lokacija || '');
-  const [opisZadatka, setOpisZadatka] = useState(posao.opis_zadatka || '');
+  const [naslov, setNaslov] = useState(posao.naslov || posao.opis_zadatka || 'Specifikacija građevinskog materijala');
   const [valuta, setValuta] = useState<'RSD' | 'EUR'>(posao.valuta || 'RSD');
-  const [jeKapara, setJeKapara] = useState(posao.je_kapara || false);
-  const [kaparaIznos, setKaparaIznos] = useState(posao.je_kapara ? String(posao.iznos || 0) : '0');
-
-  // Stavke specifikacije materijala i usluga
-  const [stavke, setStavke] = useState<StavkaSpecifikacije[]>(
-    posao.stavke && posao.stavke.length > 0
-      ? [...posao.stavke]
-      : posao.iznos > 0
-      ? [{ opis: posao.opis_zadatka || 'Glavni radovi', iznos: posao.iznos, valuta: posao.valuta }]
-      : []
+  const [obracunajPdv, setObracunajPdv] = useState<boolean>(posao.obracunaj_pdv !== false);
+  const [napomene, setNapomene] = useState(
+    posao.napomene ||
+    '• Cene su informativne i zavise od proizvođača, regiona i trenutka nabavke.\n• Količine uključuju rezervu od 5-10% za sečenje i lom.\n• Materijal mora imati atest i deklaraciju u skladu sa standardima.'
   );
 
-  const [noviOpisStavke, setNoviOpisStavke] = useState('');
-  const [novaKolicinaStavke, setNovaKolicinaStavke] = useState('');
-  const [noviIznosStavke, setNoviIznosStavke] = useState('');
-  const [cuva, setCuva] = useState(false);
-
-  // Proračun sume
-  const ukupnaSuma = stavke.reduce((sum, s) => sum + (Number(s.iznos) || 0), 0);
-  const avansBroj = parseFloat(kaparaIznos.replace(',', '.')) || 0;
-  const preostaloZaNaplatu = Math.max(0, ukupnaSuma - (jeKapara ? avansBroj : 0));
-
-  const dodajStavku = () => {
-    if (!noviOpisStavke.trim()) {
-      Alert.alert('Unos stavke', 'Unesite opis stavke ili materijala.');
-      return;
+  // Stavke tabele
+  const [stavke, setStavke] = useState<StavkaSpecifikacije[]>(() => {
+    if (posao.stavke && posao.stavke.length > 0) {
+      return posao.stavke.map((st, i) => ({
+        ...st,
+        br: i + 1,
+        jed_mere: st.jed_mere || 'kom',
+        kolicina: st.kolicina || 1,
+        jed_cena: st.jed_cena || (st.iznos || 0),
+        iznos: st.iznos || ((Number(st.kolicina) || 1) * (Number(st.jed_cena) || 0))
+      }));
     }
-    const iznosBroj = parseFloat(noviIznosStavke.replace(',', '.')) || 0;
-    const nova: StavkaSpecifikacije = {
-      opis: noviOpisStavke.trim(),
-      kolicina: novaKolicinaStavke.trim() || undefined,
-      iznos: iznosBroj,
-      valuta
-    };
+    return [
+      {
+        br: 1,
+        opis: 'Keramička pločica, I klasa',
+        jed_mere: 'm²',
+        kolicina: 10,
+        jed_cena: 2000,
+        iznos: 20000,
+        valuta: posao.valuta || 'RSD'
+      }
+    ];
+  });
 
-    setStavke([...stavke, nova]);
-    setNoviOpisStavke('');
-    setNovaKolicinaStavke('');
-    setNoviIznosStavke('');
+  const [cuva, setCuva] = useState(false);
+  const [deliPdf, setDeliPdf] = useState(false);
+
+  // Proračuni
+  const ukupnoBezPdv = stavke.reduce((sum, s) => sum + (Number(s.iznos) || 0), 0);
+  const pdvIznos = obracunajPdv ? Math.round(ukupnoBezPdv * 0.20) : 0;
+  const ukupnoSaPdv = ukupnoBezPdv + pdvIznos;
+
+  const izmeniStavku = (index: number, polje: keyof StavkaSpecifikacije, vrednost: any) => {
+    const kopija = [...stavke];
+    const trenutna = { ...kopija[index], [polje]: vrednost };
+
+    if (polje === 'kolicina' || polje === 'jed_cena') {
+      const k = parseFloat(String(trenutna.kolicina).replace(',', '.')) || 0;
+      const c = parseFloat(String(trenutna.jed_cena).replace(',', '.')) || 0;
+      trenutna.iznos = Math.round(k * c);
+    }
+
+    kopija[index] = trenutna;
+    setStavke(kopija);
   };
 
   const obrisiStavku = (index: number) => {
-    const kopija = [...stavke];
-    kopija.splice(index, 1);
-    setStavke(kopija);
+    const novaLista = stavke.filter((_, i) => i !== index).map((s, idx) => ({ ...s, br: idx + 1 }));
+    setStavke(novaLista);
+  };
+
+  const dodajNovuStavku = () => {
+    const nova: StavkaSpecifikacije = {
+      br: stavke.length + 1,
+      opis: '',
+      jed_mere: 'kom',
+      kolicina: 1,
+      jed_cena: 0,
+      iznos: 0,
+      valuta
+    };
+    setStavke([...stavke, nova]);
   };
 
   const potvrdiISacuvaj = async () => {
@@ -93,14 +108,16 @@ export default function SpecifikacijaModal({
     try {
       const azuriran: LokalniPodsetnik = {
         ...posao,
-        klijent_ime: klijentIme.trim(),
-        klijent_telefon: klijentTelefon.trim() || null,
-        lokacija: lokacija.trim(),
-        opis_zadatka: opisZadatka.trim(),
+        naslov: naslov.trim(),
+        stavke,
+        iznos: ukupnoBezPdv,
+        obracunaj_pdv: obracunajPdv,
+        pdv_procenat: 20,
+        pdv_iznos: pdvIznos,
+        ukupno_sa_pdv: ukupnoSaPdv,
         valuta,
-        stavke: stavke.map(s => ({ ...s, valuta })),
-        iznos: ukupnaSuma > 0 ? ukupnaSuma : avansBroj,
-        je_kapara: jeKapara
+        napomene: napomene.trim(),
+        tip_zabelezke: 'posao'
       };
 
       await onSacuvaj(azuriran);
@@ -112,15 +129,41 @@ export default function SpecifikacijaModal({
     }
   };
 
+  const podeliIliStampajPdf = async () => {
+    setDeliPdf(true);
+    try {
+      const azuriran: LokalniPodsetnik = {
+        ...posao,
+        naslov: naslov.trim(),
+        stavke,
+        iznos: ukupnoBezPdv,
+        obracunaj_pdv: obracunajPdv,
+        pdv_iznos: pdvIznos,
+        ukupno_sa_pdv: ukupnoSaPdv,
+        valuta,
+        napomene: napomene.trim()
+      };
+      await PdfService.generisiIDeliPdf(azuriran, korisnik);
+    } catch (e: any) {
+      Alert.alert('PDF Greška', e.message || 'Neuspešan izvoz u PDF.');
+    } finally {
+      setDeliPdf(false);
+    }
+  };
+
+  const formatirajCifru = (br: number) => {
+    return br.toLocaleString('sr-RS');
+  };
+
   return (
     <View style={styles.modalOverlay}>
       <View style={styles.listPapiraKontejner}>
-        {/* Zaglavlje lista papira */}
-        <View style={styles.papirHeader}>
+        {/* Zaglavlje modala */}
+        <View style={styles.modalHeader}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.papirNaslov}>📋 SPECIFIKACIJA RADOVA I MATERIJALA</Text>
-            <Text style={styles.papirPodnaslov}>
-              Predračun / Nalog #{posao.uuid_lokalni.slice(-6).toUpperCase()}
+            <Text style={styles.dokumentNadnaslov}>DOKUMENT: SPECIFIKACIJA POSLA</Text>
+            <Text style={styles.dokumentDatum}>
+              Kreirano: {new Date(posao.kreirano_na_uredjaju).toLocaleDateString('sr-RS')} u {new Date(posao.kreirano_na_uredjaju).toLocaleTimeString('sr-RS', { hour: '2-digit', minute: '2-digit' })}
             </Text>
           </View>
           <TouchableOpacity style={styles.btnZatvori} onPress={onZatvori}>
@@ -129,231 +172,154 @@ export default function SpecifikacijaModal({
         </View>
 
         <ScrollView contentContainerStyle={styles.papirScroll}>
-          {/* Zaglavlje sa podacima klijenta i lokacije */}
-          <View style={styles.sekcijaKlijent}>
-            <View style={styles.redPolje}>
-              <Text style={styles.labelPapir}>Klijent:</Text>
-              <TextInput
-                style={styles.inputPapir}
-                placeholder="Ime i prezime..."
-                placeholderTextColor="#94A3B8"
-                value={klijentIme}
-                onChangeText={setKlijentIme}
-              />
-              {onSnimajGlasom && (
-                <TouchableOpacity
-                  style={[styles.btnMikrofonMalo, aktivnoSnimaPolje === 'klijent' && styles.btnMikrofonMaloAktivno]}
-                  onPress={() => onSnimajGlasom('klijent')}
-                >
-                  <Text style={styles.btnMikrofonMaloTekst}>🎙️</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+          {/* List papira - Identican kao na Slici 1 */}
+          <View style={styles.beliListPapira}>
+            {/* Naslov dokumenta */}
+            <Text style={styles.glavniNaslovSpecifikacije}>SPECIFIKACIJA GRAĐEVINSKOG MATERIJALA</Text>
 
-            <View style={styles.redPolje}>
-              <Text style={styles.labelPapir}>Telefon:</Text>
-              <TextInput
-                style={styles.inputPapir}
-                placeholder="06... ili +381..."
-                placeholderTextColor="#94A3B8"
-                keyboardType="phone-pad"
-                value={klijentTelefon}
-                onChangeText={setKlijentTelefon}
-              />
-              {onSnimajGlasom && (
-                <TouchableOpacity
-                  style={[styles.btnMikrofonMalo, aktivnoSnimaPolje === 'telefon' && styles.btnMikrofonMaloAktivno]}
-                  onPress={() => onSnimajGlasom('telefon')}
-                >
-                  <Text style={styles.btnMikrofonMaloTekst}>🎙️</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            {/* Podnaslov / Naziv projekta */}
+            <TextInput
+              style={styles.podnaslovProjektaInput}
+              value={naslov}
+              onChangeText={setNaslov}
+              placeholder="Unesite naziv projekta / radova (npr. Keramičke pločice – podne i zidne)..."
+              placeholderTextColor="#94A3B8"
+            />
 
-            <View style={styles.redPolje}>
-              <Text style={styles.labelPapir}>Adresa / Radilište:</Text>
-              <TextInput
-                style={styles.inputPapir}
-                placeholder="Ulica i broj, mesto..."
-                placeholderTextColor="#94A3B8"
-                value={lokacija}
-                onChangeText={setLokacija}
-              />
-              {onSnimajGlasom && (
-                <TouchableOpacity
-                  style={[styles.btnMikrofonMalo, aktivnoSnimaPolje === 'adresa' && styles.btnMikrofonMaloAktivno]}
-                  onPress={() => onSnimajGlasom('adresa')}
-                >
-                  <Text style={styles.btnMikrofonMaloTekst}>🎙️</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <View style={styles.redPolje}>
-              <Text style={styles.labelPapir}>Opis posla:</Text>
-              <TextInput
-                style={styles.inputPapir}
-                placeholder="npr. Renoviranje kupatila, postavljanje keramike..."
-                placeholderTextColor="#94A3B8"
-                value={opisZadatka}
-                onChangeText={setOpisZadatka}
-              />
-            </View>
-          </View>
-
-          {/* Izbor valute za specifikaciju */}
-          <View style={styles.valutaIzborRed}>
-            <Text style={styles.valutaOznaka}>Valuta obračuna:</Text>
-            <TouchableOpacity
-              style={[styles.valutaBtn, valuta === 'RSD' && styles.valutaBtnAktivno]}
-              onPress={() => setValuta('RSD')}
-            >
-              <Text style={[styles.valutaBtnTekst, valuta === 'RSD' && styles.valutaBtnTekstAktivno]}>
-                🇷🇸 RSD (Dinar)
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.valutaBtn, valuta === 'EUR' && styles.valutaBtnAktivno]}
-              onPress={() => setValuta('EUR')}
-            >
-              <Text style={[styles.valutaBtnTekst, valuta === 'EUR' && styles.valutaBtnTekstAktivno]}>
-                🇪🇺 EUR (€ Evro)
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* TABELA SPECIFIKACIJE (LIST PAPIRA) */}
-          <View style={styles.tabelaKontejner}>
-            <View style={styles.tabelaHeader}>
-              <Text style={[styles.tabelaTh, { flex: 2 }]}>Artikal / Materijal / Rad</Text>
-              <Text style={[styles.tabelaTh, { width: 80, textAlign: 'center' }]}>Količina</Text>
-              <Text style={[styles.tabelaTh, { width: 90, textAlign: 'right' }]}>Cena ({valuta})</Text>
-              <Text style={[styles.tabelaTh, { width: 34 }]}></Text>
-            </View>
-
-            {stavke.length === 0 ? (
-              <View style={styles.tabelaPrazno}>
-                <Text style={styles.tabelaPraznoTekst}>Nema unetih stavki. Dodajte prvu stavku ispod.</Text>
-              </View>
-            ) : (
-              stavke.map((st, idx) => (
-                <View key={idx} style={[styles.tabelaRed, idx % 2 === 1 && styles.tabelaRedParno]}>
-                  <Text style={[styles.tabelaTd, { flex: 2, fontWeight: '600' }]}>{st.opis}</Text>
-                  <Text style={[styles.tabelaTd, { width: 80, textAlign: 'center', color: '#64748B' }]}>
-                    {st.kolicina || '-'}
-                  </Text>
-                  <Text style={[styles.tabelaTd, { width: 90, textAlign: 'right', fontWeight: '800', color: '#0F172A' }]}>
-                    {Number(st.iznos).toLocaleString()}
-                  </Text>
-                  <TouchableOpacity style={styles.btnBrisiStavku} onPress={() => obrisiStavku(idx)}>
-                    <Text style={styles.btnBrisiStavkuTekst}>✕</Text>
-                  </TouchableOpacity>
+            {/* TABELA STAVKI */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.horizontalScrollTable}>
+              <View style={styles.tabelaWrapper}>
+                {/* Zaglavlje tabele */}
+                <View style={styles.tabelaHeaderRed}>
+                  <Text style={[styles.tabelaHeaderCell, { width: 35 }]}>Br.</Text>
+                  <Text style={[styles.tabelaHeaderCell, { width: 200 }]}>Opis</Text>
+                  <Text style={[styles.tabelaHeaderCell, { width: 75 }]}>Jed. mere</Text>
+                  <Text style={[styles.tabelaHeaderCell, { width: 75 }]}>Količina</Text>
+                  <Text style={[styles.tabelaHeaderCell, { width: 105 }]}>Jed. cena ({valuta})</Text>
+                  <Text style={[styles.tabelaHeaderCell, { width: 110 }]}>Ukupno ({valuta})</Text>
+                  <Text style={[styles.tabelaHeaderCell, { width: 45, textAlign: 'center' }]}>Briši</Text>
                 </View>
-              ))
-            )}
 
-            {/* FORMA ZA DODAVANJE NOVE STAVKE */}
-            <View style={styles.novaStavkaForma}>
-              <TextInput
-                style={[styles.inputNovaStavka, { flex: 2 }]}
-                placeholder="Naziv materijala/rada"
-                placeholderTextColor="#94A3B8"
-                value={noviOpisStavke}
-                onChangeText={setNoviOpisStavke}
-              />
-              <TextInput
-                style={[styles.inputNovaStavka, { width: 75 }]}
-                placeholder="Kol (3 kom)"
-                placeholderTextColor="#94A3B8"
-                value={novaKolicinaStavke}
-                onChangeText={setNovaKolicinaStavke}
-              />
-              <TextInput
-                style={[styles.inputNovaStavka, { width: 85 }]}
-                placeholder="Iznos"
-                placeholderTextColor="#94A3B8"
-                keyboardType="numeric"
-                value={noviIznosStavke}
-                onChangeText={setNoviIznosStavke}
-              />
-              <TouchableOpacity style={styles.btnDodajStavku} onPress={dodajStavku}>
-                <Text style={styles.btnDodajStavkuTekst}>+ Dodaj</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+                {/* Redovi tabele */}
+                {stavke.map((s, idx) => (
+                  <View key={s.id || idx} style={[styles.tabelaRed, idx % 2 === 1 && styles.tabelaRedParan]}>
+                    <Text style={[styles.cellTekst, { width: 35, textAlign: 'center', fontWeight: 'bold' }]}>
+                      {idx + 1}
+                    </Text>
 
-          {/* TOTAL / FINANSIJSKI ZBIR PAPIRA */}
-          <View style={styles.zbirPapirKutija}>
-            <View style={styles.zbirPapirRed}>
-              <Text style={styles.zbirPapirLabel}>UKUPNA SPECIFIKACIJA:</Text>
-              <Text style={styles.zbirPapirIznos}>
-                {ukupnaSuma.toLocaleString()} {valuta}
-              </Text>
-            </View>
+                    <TextInput
+                      style={[styles.cellInput, { width: 200 }]}
+                      value={s.opis}
+                      onChangeText={(val) => izmeniStavku(idx, 'opis', val)}
+                      placeholder="Naziv materijala/usluge..."
+                      placeholderTextColor="#94A3B8"
+                    />
 
-            <View style={styles.kaparaPapirRed}>
-              <TouchableOpacity
-                style={styles.kaparaCheckbox}
-                onPress={() => setJeKapara(!jeKapara)}
-              >
-                <Text style={{ fontSize: 18 }}>{jeKapara ? '☑️' : '⬜'}</Text>
-                <Text style={styles.kaparaTekst}>Uzeti avans / kapara:</Text>
-              </TouchableOpacity>
+                    <TextInput
+                      style={[styles.cellInput, { width: 75, textAlign: 'center' }]}
+                      value={s.jed_mere || 'kom'}
+                      onChangeText={(val) => izmeniStavku(idx, 'jed_mere', val)}
+                      placeholder="m², kg..."
+                      placeholderTextColor="#94A3B8"
+                    />
 
-              {jeKapara && (
-                <TextInput
-                  style={styles.kaparaInput}
-                  keyboardType="numeric"
-                  value={kaparaIznos}
-                  onChangeText={setKaparaIznos}
-                  placeholder="0"
-                />
-              )}
-            </View>
+                    <TextInput
+                      style={[styles.cellInput, { width: 75, textAlign: 'center' }]}
+                      value={String(s.kolicina ?? 1)}
+                      keyboardType="numeric"
+                      onChangeText={(val) => izmeniStavku(idx, 'kolicina', val)}
+                    />
 
-            {jeKapara && avansBroj > 0 && (
-              <View style={[styles.zbirPapirRed, { borderTopWidth: 1, borderTopColor: '#CBD5E1', paddingTop: 8 }]}>
-                <Text style={[styles.zbirPapirLabel, { color: '#059669' }]}>PREOSTALO ZA NAPLATU:</Text>
-                <Text style={[styles.zbirPapirIznos, { color: '#059669' }]}>
-                  {preostaloZaNaplatu.toLocaleString()} {valuta}
-                </Text>
+                    <TextInput
+                      style={[styles.cellInput, { width: 105, textAlign: 'right' }]}
+                      value={String(s.jed_cena ?? 0)}
+                      keyboardType="numeric"
+                      onChangeText={(val) => izmeniStavku(idx, 'jed_cena', val)}
+                    />
+
+                    <Text style={[styles.cellTekst, { width: 110, textAlign: 'right', fontWeight: 'bold', color: '#0F172A' }]}>
+                      {formatirajCifru(Number(s.iznos) || 0)}
+                    </Text>
+
+                    <TouchableOpacity
+                      style={[styles.btnBrisiStavku, { width: 45 }]}
+                      onPress={() => obrisiStavku(idx)}
+                    >
+                      <Text style={styles.btnBrisiStavkuTekst}>🗑️</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
               </View>
-            )}
-          </View>
+            </ScrollView>
 
-          {/* DUGME ZA 1-KLIK PDF PREDRACUN */}
-          <TouchableOpacity
-            style={styles.btnPdfDirektno}
-            onPress={() => {
-              const azuriran: LokalniPodsetnik = {
-                ...posao,
-                klijent_ime: klijentIme,
-                klijent_telefon: klijentTelefon,
-                lokacija,
-                opis_zadatka: opisZadatka,
-                valuta,
-                stavke,
-                iznos: ukupnaSuma > 0 ? ukupnaSuma : avansBroj,
-                je_kapara: jeKapara
-              };
-              PdfService.otvoriIliPodeliPdf(azuriran, korisnik);
-            }}
-          >
-            <Text style={styles.btnPdfDirektnoTekst}>📄 Štampaj / Pošalji zvanični PDF predračun</Text>
-          </TouchableOpacity>
+            {/* Dugme za dodavanje novog reda */}
+            <TouchableOpacity style={styles.btnDodajRed} onPress={dodajNovuStavku}>
+              <Text style={styles.btnDodajRedTekst}>+ Dodaj novu stavku u tabelu</Text>
+            </TouchableOpacity>
+
+            {/* SEKCIJA REKAPITULACIJE I UKUPNIH SUMA (Tačno kao na slici 1) */}
+            <View style={styles.rekapitulacijaSekcija}>
+              <View style={styles.zbirRed}>
+                <Text style={styles.zbirNaziv}>UKUPNO (bez PDV-a):</Text>
+                <Text style={styles.zbirVrednost}>{formatirajCifru(ukupnoBezPdv)} {valuta}</Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.zbirRedPdv}
+                onPress={() => setObracunajPdv(!obracunajPdv)}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.pdvCheckboxTekst}>{obracunajPdv ? '☑' : '☐'}</Text>
+                  <Text style={styles.zbirNaziv}>PDV (20%):</Text>
+                </View>
+                <Text style={styles.zbirVrednost}>{formatirajCifru(pdvIznos)} {valuta}</Text>
+              </TouchableOpacity>
+
+              <View style={[styles.zbirRed, styles.zbirRedGlavni]}>
+                <Text style={styles.zbirGlavniNaziv}>UKUPNO SA PDV-OM:</Text>
+                <Text style={styles.zbirGlavnaVrednost}>{formatirajCifru(ukupnoSaPdv)} {valuta}</Text>
+              </View>
+            </View>
+
+            {/* NAPOMENE (Kao na slici 1) */}
+            <View style={styles.napomeneSekcija}>
+              <Text style={styles.napomeneNaslov}>Napomene:</Text>
+              <TextInput
+                style={styles.napomeneInput}
+                multiline
+                numberOfLines={4}
+                value={napomene}
+                onChangeText={setNapomene}
+                placeholder="Unesite napomene za klijenta/investitora..."
+                placeholderTextColor="#94A3B8"
+              />
+            </View>
+          </View>
         </ScrollView>
 
-        {/* Dugmad na dnu modalnog papira */}
-        <View style={styles.papirFooter}>
-          <TouchableOpacity style={styles.btnOdustani} onPress={onZatvori}>
-            <Text style={styles.btnOdustaniTekst}>Zatvori</Text>
+        {/* Dugmad na dnu ekrana */}
+        <View style={styles.modalDugmadFooter}>
+          <TouchableOpacity
+            style={styles.btnPdfFooter}
+            onPress={podeliIliStampajPdf}
+            disabled={deliPdf}
+          >
+            {deliPdf ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.btnPdfFooterTekst}>📄 PDF / Štampa</Text>
+            )}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.btnSacuvajPapir} onPress={potvrdiISacuvaj} disabled={cuva}>
+          <TouchableOpacity
+            style={styles.btnSacuvajFooter}
+            onPress={potvrdiISacuvaj}
+            disabled={cuva}
+          >
             {cuva ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color="#0F172A" size="small" />
             ) : (
-              <Text style={styles.btnSacuvajPapirTekst}>💾 SAČUVAJ SPECIFIKACIJU</Text>
+              <Text style={styles.btnSacuvajFooterTekst}>💾 Sačuvaj izmene</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -364,189 +330,261 @@ export default function SpecifikacijaModal({
 
 const styles = StyleSheet.create({
   modalOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.85)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 99999,
-    padding: 12
+    zIndex: 9999,
+    elevation: 25,
+    padding: Platform.OS === 'web' ? 20 : 8
   },
   listPapiraKontejner: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
     width: '100%',
-    maxWidth: 760,
-    maxHeight: '92%',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 25
-  },
-  papirHeader: {
+    maxWidth: 820,
+    maxHeight: '94%',
     backgroundColor: '#1E293B',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#334155',
+    flexDirection: 'column'
+  },
+  modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between'
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#0F172A',
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155'
   },
-  papirNaslov: { color: '#38BDF8', fontSize: 16, fontWeight: '900', letterSpacing: 0.5 },
-  papirPodnaslov: { color: '#94A3B8', fontSize: 12, marginTop: 2 },
-  btnZatvori: { padding: 8 },
-  btnZatvoriTekst: { color: '#FFFFFF', fontSize: 20, fontWeight: 'bold' },
-  papirScroll: { padding: 18, gap: 14 },
-  sekcijaKlijent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    gap: 8
+  dokumentNadnaslov: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1
   },
-  redPolje: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  labelPapir: { width: 110, fontSize: 13, fontWeight: '700', color: '#475569' },
-  inputPapir: {
-    flex: 1,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: '#0F172A',
-    borderWidth: 1,
-    borderColor: '#CBD5E1'
+  dokumentDatum: {
+    color: '#94A3B8',
+    fontSize: 12,
+    marginTop: 2
   },
-  btnMikrofonMalo: {
-    backgroundColor: '#E2E8F0',
+  btnZatvori: {
     width: 36,
     height: 36,
-    borderRadius: 8,
+    borderRadius: 18,
+    backgroundColor: '#334155',
     justifyContent: 'center',
     alignItems: 'center'
   },
-  btnMikrofonMaloAktivno: { backgroundColor: '#EF4444' },
-  btnMikrofonMaloTekst: { fontSize: 16 },
-  valutaIzborRed: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  valutaOznaka: { fontSize: 13, fontWeight: '700', color: '#334155' },
-  valutaBtn: {
-    backgroundColor: '#E2E8F0',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8
+  btnZatvoriTekst: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold'
   },
-  valutaBtnAktivno: { backgroundColor: '#0284C7' },
-  valutaBtnTekst: { color: '#475569', fontSize: 13, fontWeight: '700' },
-  valutaBtnTekstAktivno: { color: '#FFFFFF' },
-  tabelaKontejner: {
+  papirScroll: {
+    padding: Platform.OS === 'web' ? 16 : 8
+  },
+  beliListPapira: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    overflow: 'hidden'
+    borderRadius: 8,
+    padding: Platform.OS === 'web' ? 28 : 16,
+    shadowColor: '#000000',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 4
   },
-  tabelaHeader: {
+  glavniNaslovSpecifikacije: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: 0.5,
+    marginBottom: 8
+  },
+  podnaslovProjektaInput: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1E293B',
+    borderBottomWidth: 2,
+    borderBottomColor: '#E2E8F0',
+    paddingVertical: 6,
+    marginBottom: 20
+  },
+  horizontalScrollTable: {
+    marginBottom: 12
+  },
+  tabelaWrapper: {
+    minWidth: 640
+  },
+  tabelaHeaderRed: {
     flexDirection: 'row',
-    backgroundColor: '#0F172A',
-    paddingVertical: 10,
-    paddingHorizontal: 12
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: '#CBD5E1',
+    paddingBottom: 8,
+    marginBottom: 4
   },
-  tabelaTh: { color: '#F8FAFC', fontSize: 12, fontWeight: '800' },
-  tabelaPrazno: { padding: 20, alignItems: 'center' },
-  tabelaPraznoTekst: { color: '#94A3B8', fontSize: 13, fontStyle: 'italic' },
+  tabelaHeaderCell: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#475569'
+  },
   tabelaRed: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9'
+    borderBottomColor: '#F1F5F9',
+    paddingVertical: 6
   },
-  tabelaRedParno: { backgroundColor: '#F8FAFC' },
-  tabelaTd: { fontSize: 13, color: '#1E293B' },
-  btnBrisiStavku: { width: 34, alignItems: 'center' },
-  btnBrisiStavkuTekst: { color: '#EF4444', fontWeight: '800', fontSize: 14 },
-  novaStavkaForma: {
-    flexDirection: 'row',
-    padding: 10,
-    backgroundColor: '#F1F5F9',
-    gap: 8,
-    alignItems: 'center'
+  tabelaRedParan: {
+    backgroundColor: '#F8FAFC'
   },
-  inputNovaStavka: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  cellTekst: {
     fontSize: 13,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    color: '#0F172A'
+    color: '#1E293B'
   },
-  btnDodajStavku: {
-    backgroundColor: '#059669',
+  cellInput: {
+    fontSize: 13,
+    color: '#0F172A',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+    marginRight: 4
+  },
+  btnBrisiStavku: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 4
+  },
+  btnBrisiStavkuTekst: {
+    fontSize: 16
+  },
+  btnDodajRed: {
     paddingVertical: 8,
     paddingHorizontal: 14,
-    borderRadius: 6
-  },
-  btnDodajStavkuTekst: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
-  zbirPapirKutija: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 2,
-    borderColor: '#E2E8F0',
-    gap: 10
-  },
-  zbirPapirRed: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  zbirPapirLabel: { fontSize: 15, fontWeight: '800', color: '#0F172A' },
-  zbirPapirIznos: { fontSize: 20, fontWeight: '900', color: '#0284C7' },
-  kaparaPapirRed: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  kaparaCheckbox: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  kaparaTekst: { fontSize: 14, fontWeight: '600', color: '#475569' },
-  kaparaInput: {
-    width: 120,
     backgroundColor: '#F1F5F9',
     borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#D97706',
+    alignSelf: 'flex-start',
+    marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
-    textAlign: 'right'
+    borderColor: '#CBD5E1'
   },
-  btnPdfDirektno: {
-    backgroundColor: '#0284C7',
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center'
+  btnDodajRedTekst: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2563EB'
   },
-  btnPdfDirektnoTekst: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
-  papirFooter: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+  rekapitulacijaSekcija: {
+    borderTopWidth: 2,
+    borderTopColor: '#0F172A',
+    paddingTop: 14,
+    marginBottom: 24,
+    alignSelf: 'flex-start',
+    minWidth: 320
+  },
+  zbirRed: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4
+  },
+  zbirRedPdv: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4
+  },
+  pdvCheckboxTekst: {
+    fontSize: 16,
+    color: '#2563EB',
+    marginRight: 6,
+    fontWeight: 'bold'
+  },
+  zbirNaziv: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155'
+  },
+  zbirVrednost: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A'
+  },
+  zbirRedGlavni: {
+    borderTopWidth: 1,
+    borderTopColor: '#CBD5E1',
+    marginTop: 4,
+    paddingTop: 6
+  },
+  zbirGlavniNaziv: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#0F172A'
+  },
+  zbirGlavnaVrednost: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#059669'
+  },
+  napomeneSekcija: {
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
+    paddingTop: 16
+  },
+  napomeneNaslov: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 8
+  },
+  napomeneInput: {
+    fontSize: 12,
+    color: '#475569',
+    lineHeight: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 6,
+    padding: 10,
+    backgroundColor: '#F8FAFC'
+  },
+  modalDugmadFooter: {
     flexDirection: 'row',
+    padding: 14,
+    backgroundColor: '#0F172A',
+    borderTopWidth: 1,
+    borderTopColor: '#334155',
     gap: 12
   },
-  btnOdustani: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    backgroundColor: '#E2E8F0'
-  },
-  btnOdustaniTekst: { color: '#475569', fontWeight: '700', fontSize: 14 },
-  btnSacuvajPapir: {
+  btnPdfFooter: {
     flex: 1,
-    backgroundColor: '#10B981',
     paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center'
+    backgroundColor: '#334155',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
-  btnSacuvajPapirTekst: { color: '#FFFFFF', fontWeight: '900', fontSize: 15 }
+  btnPdfFooterTekst: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14
+  },
+  btnSacuvajFooter: {
+    flex: 2,
+    paddingVertical: 12,
+    backgroundColor: '#F59E0B',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  btnSacuvajFooterTekst: {
+    color: '#0F172A',
+    fontWeight: '900',
+    fontSize: 14
+  }
 });

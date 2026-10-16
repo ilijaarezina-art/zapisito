@@ -1,23 +1,36 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface StavkaSpecifikacije {
+  id?: string;
+  br?: number;
   opis: string;
+  jed_mere?: string;
+  kolicina?: number | string;
+  jed_cena?: number;
   iznos: number;
   valuta: 'RSD' | 'EUR';
+  kupljeno?: boolean;
 }
 
 export interface LokalniPodsetnik {
   uuid_lokalni: string;
   server_id?: number;
   sirovi_tekst: string;
+  naslov?: string;
   klijent_ime: string;
   klijent_telefon?: string | null;
   lokacija: string;
   iznos: number;
   valuta: 'RSD' | 'EUR';
+  obracunaj_pdv?: boolean;
+  pdv_procenat?: number;
+  pdv_iznos?: number;
+  ukupno_sa_pdv?: number;
   je_kapara: boolean;
+  kapara_iznos?: number;
   rok_datum: string | null;
   opis_zadatka: string;
+  napomene?: string;
   stavke?: StavkaSpecifikacije[];
   tip_zabelezke?: 'posao' | 'nabavka' | 'zakazano';
   je_zavrseno: boolean;

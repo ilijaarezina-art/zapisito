@@ -23,6 +23,8 @@ import VoiceWaveform from '../components/VoiceWaveform';
 import NabavkaView from '../components/NabavkaView';
 import ZakazaniPosloviView from '../components/ZakazaniPosloviView';
 import SpecifikacijaModal from '../components/SpecifikacijaModal';
+import NabavkaModal from '../components/NabavkaModal';
+import ZakazaniPosaoModal from '../components/ZakazaniPosaoModal';
 
 interface HomeScreenProps {
   korisnik: KorisnikCache;
@@ -47,6 +49,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
   const [speechPodrzan, setSpeechPodrzan] = useState(true);
   const [filterStatus, setFilterStatus] = useState<'aktivni' | 'zavrseni'>('aktivni');
   const [glavniPrikaz, setGlavniPrikaz] = useState<'poslovi' | 'nabavka' | 'kalendar'>('poslovi');
+  const [aktivniTipSnimanja, setAktivniTipSnimanja] = useState<'posao' | 'nabavka' | 'zakazano'>('posao');
   const [pretragaTekst, setPretragaTekst] = useState('');
   const [aktivniChipFilter, setAktivniChipFilter] = useState<'svi' | 'danas' | 'kapara' | 'materijal'>('svi');
   const recognitionRef = useRef<any>(null);
@@ -260,7 +263,11 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
     setJeSnimanjeAktivno(false);
   };
 
-  const otvoriModalZaGovor = (podrazumevaniTip: 'posao' | 'nabavka' | 'zakazano' = 'posao') => {
+  const otvoriModalZaGovor = (podrazumevaniTip?: 'posao' | 'nabavka' | 'zakazano') => {
+    const tip = podrazumevaniTip || (glavniPrikaz === 'nabavka' ? 'nabavka' : (glavniPrikaz === 'kalendar' ? 'zakazano' : 'posao'));
+    setAktivniTipSnimanja(tip);
+    setIzgovoreniTekst('');
+    setParsirano(null);
     setModalOtvoren(true);
     // Automatski pokreni nativni ili web mikrofon
     setTimeout(() => {
@@ -271,6 +278,8 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
   const zatvoriModal = () => {
     zaustaviSnimanje();
     setModalOtvoren(false);
+    setIzgovoreniTekst('');
+    setParsirano(null);
   };
 
   const pokreniRucnuSinhronizaciju = async () => {
@@ -281,34 +290,41 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
     Alert.alert('Sinhronizacija', rez.poruka);
   };
 
-  // Kada korisnik unese/izgovori tekst, odmah ga u hodu parsiramo u odnosu na trenutni tab
+  // Kada korisnik unese/izgovori tekst, odmah ga u hodu parsiramo u odnosu na izabrani tip dokumenta
   const rukujIzmenomTeksta = (tekst: string) => {
     setIzgovoreniTekst(tekst);
-    if (tekst.trim().length > 2) {
-      const tipModa = glavniPrikaz === 'nabavka' ? 'nabavka' : (glavniPrikaz === 'kalendar' ? 'zakazano' : 'posao');
-      const rez = parsirajTekst(tekst, tipModa);
+    if (tekst.trim().length > 1) {
+      const rez = parsirajTekst(tekst, aktivniTipSnimanja);
       setParsirano(rez);
     } else {
       setParsirano(null);
     }
   };
 
-  // 1-klik čuvanje
+  // 1-klik čuvanje dokumenta
   const sacuvajNoviPodsetnik = async () => {
-    if (!parsirano) return;
+    const aktuelnoParsirano = parsirano || parsirajTekst(izgovoreniTekst, aktivniTipSnimanja);
+    if (!aktuelnoParsirano) return;
 
     try {
       await StorageService.sacuvajPodsetnik({
         sirovi_tekst: izgovoreniTekst,
-        klijent_ime: parsirano.klijent_ime,
-        klijent_telefon: parsirano.klijent_telefon,
-        lokacija: parsirano.lokacija,
-        iznos: parsirano.iznos,
-        valuta: parsirano.valuta,
-        je_kapara: parsirano.je_kapara,
-        rok_datum: parsirano.rok_datum,
-        opis_zadatka: parsirano.opis_zadatka,
-        stavke: parsirano.stavke,
+        naslov: aktuelnoParsirano.naslov,
+        klijent_ime: aktuelnoParsirano.klijent_ime,
+        klijent_telefon: aktuelnoParsirano.klijent_telefon,
+        lokacija: aktuelnoParsirano.lokacija,
+        iznos: aktuelnoParsirano.iznos,
+        valuta: aktuelnoParsirano.valuta,
+        obracunaj_pdv: aktuelnoParsirano.obracunaj_pdv,
+        pdv_procenat: aktuelnoParsirano.pdv_procenat,
+        pdv_iznos: aktuelnoParsirano.pdv_iznos,
+        ukupno_sa_pdv: aktuelnoParsirano.ukupno_sa_pdv,
+        je_kapara: aktuelnoParsirano.je_kapara,
+        rok_datum: aktuelnoParsirano.rok_datum,
+        opis_zadatka: aktuelnoParsirano.opis_zadatka,
+        napomene: aktuelnoParsirano.napomene,
+        stavke: aktuelnoParsirano.stavke,
+        tip_zabelezke: aktivniTipSnimanja,
         je_zavrseno: false
       });
 
@@ -538,6 +554,15 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
     }
   };
 
+  const obrisiPoUuid = (uuid: string) => {
+    const item = podsetnici.find(p => p.uuid_lokalni === uuid);
+    if (item) {
+      obrisiOdredjeniPodsetnik(item);
+    } else {
+      StorageService.obrisiPodsetnik(uuid).then(() => ucitajPodatke());
+    }
+  };
+
   const posaljiPorukuKlijentu = (item: LokalniPodsetnik) => {
     const datumTekst = item.rok_datum ? new Date(item.rok_datum).toLocaleDateString('sr-RS') : 'uskoro';
 
@@ -629,31 +654,35 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
 
   const posloviZaTab = filterStatus === 'aktivni' ? aktivniPoslovi : zavrseniPoslovi;
 
-  const filtriraniPoslovi = posloviZaTab.filter(p => {
-    // Filter chip
-    if (aktivniChipFilter === 'danas') {
-      if (!p.rok_datum) return false;
-      const d = new Date(p.rok_datum);
-      if (d > danasKraj) return false;
-    } else if (aktivniChipFilter === 'kapara') {
-      if (!p.je_kapara) return false;
-    } else if (aktivniChipFilter === 'materijal') {
-      if (!p.stavke || p.stavke.length === 0) return false;
-    }
+  const filtriraniPoslovi = posloviZaTab
+    .filter(p => p.tip_zabelezke === 'posao' || (!p.tip_zabelezke && !p.rok_datum && (!p.stavke || !p.stavke.some(s => s.kupljeno !== undefined))))
+    .filter(p => {
+      // Filter chip
+      if (aktivniChipFilter === 'danas') {
+        if (!p.rok_datum) return false;
+        const d = new Date(p.rok_datum);
+        if (d > danasKraj) return false;
+      } else if (aktivniChipFilter === 'kapara') {
+        if (!p.je_kapara) return false;
+      } else if (aktivniChipFilter === 'materijal') {
+        if (!p.stavke || p.stavke.length === 0) return false;
+      }
 
-    // Pretraga tekst
-    if (pretragaTekst.trim()) {
-      const q = pretragaTekst.toLowerCase().trim();
-      const uImenu = p.klijent_ime && p.klijent_ime.toLowerCase().includes(q);
-      const uOpisu = p.opis_zadatka && p.opis_zadatka.toLowerCase().includes(q);
-      const uLokaciji = p.lokacija && p.lokacija.toLowerCase().includes(q);
-      const uTel = p.klijent_telefon && p.klijent_telefon.includes(q);
-      const uStavkama = p.stavke && p.stavke.some(s => s.opis.toLowerCase().includes(q));
-      return uImenu || uOpisu || uLokaciji || uTel || uStavkama;
-    }
+      // Pretraga tekst
+      if (pretragaTekst.trim()) {
+        const q = pretragaTekst.toLowerCase().trim();
+        const uNaslovu = p.naslov && p.naslov.toLowerCase().includes(q);
+        const uImenu = p.klijent_ime && p.klijent_ime.toLowerCase().includes(q);
+        const uOpisu = p.opis_zadatka && p.opis_zadatka.toLowerCase().includes(q);
+        const uLokaciji = p.lokacija && p.lokacija.toLowerCase().includes(q);
+        const uTel = p.klijent_telefon && p.klijent_telefon.includes(q);
+        const uStavkama = p.stavke && p.stavke.some(s => s.opis.toLowerCase().includes(q));
+        return uNaslovu || uImenu || uOpisu || uLokaciji || uTel || uStavkama;
+      }
 
-    return true;
-  });
+      return true;
+    })
+    .sort((a, b) => new Date(b.kreirano_na_uredjaju).getTime() - new Date(a.kreirano_na_uredjaju).getTime());
 
   return (
     <View style={styles.container}>
@@ -766,6 +795,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
         <NabavkaView
           podsetnici={podsetnici}
           onOtvoriEdit={otvoriModalZaIzmenu}
+          onObrisi={(uuid) => obrisiPoUuid(uuid)}
           onDodajNovuNabavku={() => otvoriModalZaGovor('nabavka')}
         />
       )}
@@ -775,6 +805,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
         <ZakazaniPosloviView
           podsetnici={podsetnici}
           onIzaberiPosao={otvoriModalZaIzmenu}
+          onObrisi={(uuid) => obrisiPoUuid(uuid)}
           onZavrsiPosao={prebaciZavrseno}
           onDodajZakazani={() => otvoriModalZaGovor('zakazano')}
         />
@@ -921,152 +952,127 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
                 </View>
               )
             }
-            renderItem={({ item }) => {
+            renderItem={({ item, index }) => {
               const statusBoja = uzmiStatusBoju(item);
+              const naslovPrikaz = item.naslov || (item.klijent_ime ? `Posao - ${item.klijent_ime}` : item.opis_zadatka) || `Posao #${item.uuid_lokalni.slice(-4)}`;
+              const brojStavki = item.stavke ? item.stavke.length : 0;
+              const datumKreiranja = new Date(item.kreirano_na_uredjaju).toLocaleDateString('sr-RS', {
+                day: 'numeric',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+              const ukupnoPrikaz = (item.ukupno_sa_pdv || item.iznos || 0).toLocaleString('sr-RS');
 
               return (
-                <View
+                <TouchableOpacity
                   style={[
-                    styles.kartica,
+                    styles.posaoKarticaRed,
                     { borderLeftColor: statusBoja, borderLeftWidth: 4 },
-                    item.je_zavrseno && styles.karticaZavrseno
+                    item.je_zavrseno && styles.posaoKarticaZavrseno
                   ]}
+                  activeOpacity={0.8}
+                  onPress={() => otvoriModalZaIzmenu(item)}
                 >
-                  <View style={styles.karticaHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.karticaKlijent}>
-                        👤 {item.klijent_ime || 'Nepoznat klijent'}
+                  {/* Levo: Ikona i Redni broj */}
+                  <View style={styles.posaoIkonaOmotac}>
+                    <Text style={styles.posaoIkonaTekst}>🔨</Text>
+                    <Text style={styles.posaoRedniBroj}>#{index + 1}</Text>
+                  </View>
+
+                  {/* Sredina: Naslov, klijent/lokacija, sažetak stavki, datum */}
+                  <View style={styles.posaoSredina}>
+                    <View style={styles.posaoGornjiRed}>
+                      <Text style={styles.posaoNaslov} numberOfLines={1}>
+                        {naslovPrikaz}
                       </Text>
-
-                      {/* Čip za lokaciju sa 1-klik navigacijom na Google Maps */}
-                      {item.lokacija ? (
-                        <TouchableOpacity
-                          style={styles.chipLokacija}
-                          onPress={() => otvoriNavigaciju(item.lokacija)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.chipLokacijaTekst}>📍 {item.lokacija} (Otvori mapu 🗺️)</Text>
-                        </TouchableOpacity>
-                      ) : null}
-
-                      {item.klijent_telefon ? (
-                        <Text style={styles.karticaTelefon}>📞 {item.klijent_telefon}</Text>
-                      ) : null}
-
-                      <Text style={styles.karticaZadatak}>{item.opis_zadatka}</Text>
+                      <Text style={styles.posaoDatumTekst}>{datumKreiranja}</Text>
                     </View>
 
-                    {item.iznos > 0 && (
-                      <View style={styles.iznosBadge}>
-                        <Text style={styles.iznosTekst}>
-                          {item.iznos.toLocaleString('sr-RS')} {item.valuta}
-                        </Text>
-                        {item.je_kapara && <Text style={styles.kaparaTekst}>KAPARA</Text>}
-                      </View>
-                    )}
+                    {item.klijent_ime || item.lokacija ? (
+                      <Text style={styles.posaoKlijentLokacija} numberOfLines={1}>
+                        {item.klijent_ime ? `👤 ${item.klijent_ime}` : ''}
+                        {item.klijent_ime && item.lokacija ? ' • ' : ''}
+                        {item.lokacija ? `📍 ${item.lokacija}` : ''}
+                      </Text>
+                    ) : null}
+
+                    <Text style={styles.posaoSazetakStavki} numberOfLines={1}>
+                      {brojStavki > 0
+                        ? `📋 ${brojStavki} stavki specifikacije (${item.stavke!.slice(0, 3).map(s => s.opis).join(', ')}${brojStavki > 3 ? '...' : ''})`
+                        : (item.opis_zadatka || 'Bez detaljnog opisa')}
+                    </Text>
+
+                    {item.rok_datum ? (
+                      <Text style={styles.posaoRokTekst}>
+                        ⏰ Rok: {new Date(item.rok_datum).toLocaleDateString('sr-RS', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    ) : null}
                   </View>
 
-                  {/* Prikaz specifikacije stavki ako postoje */}
-                  {item.stavke && item.stavke.length > 0 && (
-                    <View style={styles.karticaSpecifikacija}>
-                      <Text style={styles.karticaSpecifikacijaNaslov}>📋 Specifikacija stavki ({item.stavke.length}):</Text>
-                      {item.stavke.map((st, i) => (
-                        <View key={i} style={styles.karticaSpecifikacijaRed}>
-                          <Text style={styles.karticaSpecifikacijaStavka}>• {st.opis}</Text>
-                          <Text style={styles.karticaSpecifikacijaCena}>
-                            {st.iznos.toLocaleString('sr-RS')} {st.valuta}
-                          </Text>
-                        </View>
-                      ))}
+                  {/* Desno: Iznos i akciona dugmad */}
+                  <View style={styles.posaoDesnoKontejner}>
+                    <View style={styles.posaoIznosBedz}>
+                      <Text style={styles.posaoIznosCifra}>{ukupnoPrikaz}</Text>
+                      <Text style={styles.posaoIznosValuta}>{item.valuta}</Text>
                     </View>
-                  )}
 
-                  {item.rok_datum && (
-                    <Text style={styles.rokTekst}>
-                      📅 Rok: {new Date(item.rok_datum).toLocaleString('sr-RS', { dateStyle: 'short', timeStyle: 'short' })}
-                    </Text>
-                  )}
+                    <View style={styles.posaoAkcijeRed}>
+                      <TouchableOpacity
+                        style={styles.btnMalaAkcijaPosao}
+                        onPress={() => PdfService.otvoriIliPodeliPdf(item, korisnik)}
+                      >
+                        <Text style={styles.btnAkcijaTekst}>📄</Text>
+                      </TouchableOpacity>
 
-                  {/* Akciona dugmad: WhatsApp poruka + 1-klik PDF Predračun */}
-                  <View style={styles.akcijeDvaReda}>
-                    <TouchableOpacity
-                      style={[styles.btnPoruka, { flex: 1.1 }]}
-                      onPress={() => posaljiPorukuKlijentu(item)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.btnPorukaTekst} numberOfLines={1}>
-                        💬 WhatsApp / Poruka
-                      </Text>
-                    </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.btnMalaAkcijaPosao}
+                        onPress={() => otvoriModalZaIzmenu(item)}
+                      >
+                        <Text style={styles.btnAkcijaTekst}>✏️</Text>
+                      </TouchableOpacity>
 
-                    <TouchableOpacity
-                      style={[styles.btnPdfPredracun, { flex: 1 }]}
-                      onPress={() => PdfService.otvoriIliPodeliPdf(item, korisnik)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.btnPdfPredracunTekst} numberOfLines={1}>
-                        📄 PDF Predračun
-                      </Text>
-                    </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.btnMalaAkcijaPosao, styles.btnMalaAkcijaBrisi]}
+                        onPress={() => obrisiOdredjeniPodsetnik(item)}
+                      >
+                        <Text style={styles.btnAkcijaTekst}>🗑️</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-
-                  <View style={styles.karticaFooter}>
-                    <TouchableOpacity
-                      style={[styles.btnZavrsi, item.je_zavrseno && styles.btnZavrsiAktivno]}
-                      onPress={() => prebaciZavrseno(item.uuid_lokalni, item.je_zavrseno)}
-                    >
-                      <Text style={styles.btnZavrsiTekst}>
-                        {item.je_zavrseno ? '↩️ Vrati u aktivne' : '⭕ Označi kao gotovo'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {/* Dugme za naknadnu izmenu posla */}
-                    <TouchableOpacity
-                      style={styles.btnAkcijaPosao}
-                      onPress={() => otvoriModalZaIzmenu(item)}
-                      accessibilityLabel="Izmeni unos"
-                    >
-                      <Text style={{ fontSize: 13 }}>✏️</Text>
-                    </TouchableOpacity>
-
-                    {/* Dugme za brisanje unosa */}
-                    <TouchableOpacity
-                      style={[styles.btnAkcijaPosao, styles.btnKantaPosao]}
-                      onPress={() => obrisiOdredjeniPodsetnik(item)}
-                      accessibilityLabel="Obriši unos"
-                    >
-                      <Text style={{ fontSize: 13 }}>🗑️</Text>
-                    </TouchableOpacity>
-
-                    <Text style={styles.syncStatus}>
-                      {item.is_synced ? '☁️ Sačuvano' : '💾 Na tel.'}
-                    </Text>
-                  </View>
-                </View>
+                </TouchableOpacity>
               );
             }}
           />
         </View>
       )}
 
-      {/* Glavno OGROMNO dugme: ZAPIŠI TO */}
+      {/* Glavno dugme: ZAPIŠI TO prilagođeno aktivnom tabu */}
       <View style={styles.floatingButtonContainer}>
         <TouchableOpacity
           style={styles.btnGlavnoGlas}
-          onPress={otvoriModalZaGovor}
+          onPress={() => otvoriModalZaGovor(glavniPrikaz === 'nabavka' ? 'nabavka' : (glavniPrikaz === 'kalendar' ? 'zakazano' : 'posao'))}
           activeOpacity={0.85}
         >
           <Text style={styles.btnGlavnoGlasIkona}>🎙️</Text>
-          <Text style={styles.btnGlavnoGlasTekst}>ZAPIŠI TO (GOVOR)</Text>
+          <Text style={styles.btnGlavnoGlasTekst}>
+            {glavniPrikaz === 'nabavka'
+              ? 'ZAPIŠI NABAVKU (GOVOR)'
+              : (glavniPrikaz === 'kalendar' ? 'ZAKAŽI TERMIN (GOVOR)' : 'ZAPIŠI SPECIFIKACIJU (GOVOR)')}
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Modal za brzi govor i pregled */}
+      {/* Modal za brzi govor i popunjavanje dokumenta */}
       {modalOtvoren && (
         <View style={[StyleSheet.absoluteFill, styles.modalOverlay, jeDesktopTablet && styles.modalOverlayDesktop, { zIndex: 9999 }]}>
           <View style={[styles.modalSadrzaj, jeDesktopTablet && styles.modalSadrzajDesktop]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalNaslov}>🎙️ Snimanje / Unos beleške</Text>
+              <Text style={styles.modalNaslov}>
+                {aktivniTipSnimanja === 'nabavka'
+                  ? '🛒 DOKUMENT: LISTA ZA NABAVKU'
+                  : (aktivniTipSnimanja === 'zakazano' ? '📅 DOKUMENT: ZAKAZANI TERMIN' : '🔨 DOKUMENT: SPECIFIKACIJA POSLA')}
+              </Text>
               <TouchableOpacity onPress={zatvoriModal}>
                 <Text style={styles.modalZatvori}>✕</Text>
               </TouchableOpacity>
@@ -1078,7 +1084,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
                 <View style={styles.snimanjeRed}>
                   <View style={{ flex: 1, marginRight: 10 }}>
                     <Text style={styles.snimanjeTekstGlavni}>🔴 SNIMANJE U TOKU...</Text>
-                    <Text style={styles.snimanjeTekstPod}>Slušam vaš govor na srpskom jeziku</Text>
+                    <Text style={styles.snimanjeTekstPod}>Slušam vaš govor i popunjavam dokument</Text>
                   </View>
                   <VoiceWaveform aktivan={true} boja="#10B981" />
                   <TouchableOpacity
@@ -1122,88 +1128,171 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
             <TextInput
               style={styles.modalInput}
               multiline
-              placeholder="npr. Danas kod Zorana na Vračaru uzeo 4 soma, treba da donesem slavinu sutra u 10"
+              placeholder={
+                aktivniTipSnimanja === 'nabavka'
+                  ? "npr. Jabuke 2kg, Banane 1 kg, kafa 200gr, 2 hleba, mleko 1 litar"
+                  : (aktivniTipSnimanja === 'zakazano'
+                      ? "npr. Jovan Petrović, 064 123 4567, Smederevo Knez Mihailova 12, sutra u 10 sati, krečenje stana"
+                      : "npr. Podna pločica 120 kvadrata po 2800 dinara, lepak 1200 kg po 95 dinara, fug masa 150 kg po 320 dinara")
+              }
               placeholderTextColor="#71717A"
               value={izgovoreniTekst}
               onChangeText={rukujIzmenomTeksta}
               autoFocus
             />
 
-            {/* Brzi tasteri za simulaciju realnog govora majstora */}
+            {/* Brzi tasteri za simulaciju realnog govora majstora prema aktivnom tabu */}
             <Text style={styles.brziPrimeriNaslov}>Isprobajte brzi primer jednim klikom:</Text>
             <View style={styles.primeriContainer}>
-              <TouchableOpacity
-                style={styles.chipPrimer}
-                onPress={() => rukujIzmenomTeksta('Kod Zorana 0641234567 na Vračaru\ngvoždje 10 kg oko 3000 din\ncement 20 džakova 20000 dinara\nšljunak 4 kubika 8000 dinara')}
-              >
-                <Text style={styles.chipPrimerTekst}>"📋 Specifikacija: gvoždje, cement, šljunak..."</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.chipPrimer}
-                onPress={() => rukujIzmenomTeksta('Danas kod Zorana 0641234567 na Vračaru zamenjen ventil, uzeo 4 soma za ruke')}
-              >
-                <Text style={styles.chipPrimerTekst}>"Kod Zorana 064... uzeo 4 soma"</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.chipPrimer}
-                onPress={() => rukujIzmenomTeksta('Kod Milana uzeo 50 evra kapare za bojler, montaža u ponedeljak')}
-              >
-                <Text style={styles.chipPrimerTekst}>"Kod Milana 50€ kapara ponedeljak"</Text>
-              </TouchableOpacity>
+              {aktivniTipSnimanja === 'nabavka' ? (
+                <>
+                  <TouchableOpacity
+                    style={styles.chipPrimer}
+                    onPress={() => rukujIzmenomTeksta('Jabuke 2kg, Banane 1 kg, kafa 200gr, krompir 3 kg')}
+                  >
+                    <Text style={styles.chipPrimerTekst}>"🛒 Jabuke 2kg, Banane 1 kg, kafa 200gr..."</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.chipPrimer}
+                    onPress={() => rukujIzmenomTeksta('2 hleba, 1 litar mleka, 300 grama sira, 10 jaja')}
+                  >
+                    <Text style={styles.chipPrimerTekst}>"🛒 2 hleba, 1 litar mleka, 300gr sira..."</Text>
+                  </TouchableOpacity>
+                </>
+              ) : aktivniTipSnimanja === 'zakazano' ? (
+                <>
+                  <TouchableOpacity
+                    style={styles.chipPrimer}
+                    onPress={() => rukujIzmenomTeksta('Jovan Petrović, 064 123 4567, Smederevo Knez Mihailova 12, sutra u 10 sati, krečenje stana')}
+                  >
+                    <Text style={styles.chipPrimerTekst}>"📅 Jovan Petrović, 064 123 4567, Smederevo..."</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.chipPrimer}
+                    onPress={() => rukujIzmenomTeksta('Milan Simić, 065 999 888, Beograd Bulevar 45, petak u 14h, popravka bojlera')}
+                  >
+                    <Text style={styles.chipPrimerTekst}>"📅 Milan Simić, 065..., petak u 14h..."</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={styles.chipPrimer}
+                    onPress={() => rukujIzmenomTeksta('Podna pločica 120 kvadrata po 2800 dinara, zidna pločica 85 kvadrata po 1950 dinara, lepak za pločice 1200 kg po 95 dinara')}
+                  >
+                    <Text style={styles.chipPrimerTekst}>"🔨 Podna pločica 120 kv po 2800 din, lepak..."</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.chipPrimer}
+                    onPress={() => rukujIzmenomTeksta('Krečenje 150 kvadrata po 250 dinara, gletovanje 150 kvadrata po 300 dinara')}
+                  >
+                    <Text style={styles.chipPrimerTekst}>"🔨 Krečenje 150kv po 250, gletovanje..."</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
 
-            {/* Kartica prepoznatih polja (Opcija B u realnom vremenu) */}
+            {/* PREGLED POPUNJENOG DOKUMENTA U REALNOM VREMENU */}
             {parsirano && (
               <View style={styles.pregledKartica}>
-                <Text style={styles.pregledNaslov}>⚡ Automatski prepoznato (0ms):</Text>
-                <Text style={styles.pregledStavka}>
-                  👤 Klijent: <Text style={{ color: '#fff', fontWeight: 'bold' }}>{parsirano.klijent_ime || 'Nije prepoznato'}</Text>
-                  {parsirano.lokacija ? ` (${parsirano.lokacija})` : ''}
+                <Text style={styles.pregledNaslov}>
+                  ⚡ Automatski popunjen dokument ({parsirano.stavke ? parsirano.stavke.length : 1} stavki):
                 </Text>
 
-                {parsirano.klijent_telefon ? (
-                  <Text style={styles.pregledStavka}>
-                    📞 Telefon klijenta: <Text style={{ color: '#FDE047', fontWeight: 'bold' }}>{parsirano.klijent_telefon}</Text>
-                  </Text>
-                ) : null}
-
-                {/* Ako postoji višestruka specifikacija stavki */}
-                {parsirano.stavke && parsirano.stavke.length > 0 ? (
-                  <View style={styles.pregledSpecifikacija}>
-                    <Text style={styles.pregledSpecifikacijaNaslov}>📋 Automatska specifikacija ({parsirano.stavke.length} stavke):</Text>
+                {/* 1. AKO JE NABAVKA (Prikaz po slici 2: Namirnica + Količina) */}
+                {aktivniTipSnimanja === 'nabavka' && parsirano.stavke && parsirano.stavke.length > 0 ? (
+                  <View style={styles.pregledTabelaNabavka}>
+                    <View style={styles.pregledTabelaNabavkaHeader}>
+                      <Text style={[styles.pregledColHeader, { width: 30 }]}>Br.</Text>
+                      <Text style={[styles.pregledColHeader, { flex: 2 }]}>Namirnica</Text>
+                      <Text style={[styles.pregledColHeader, { flex: 1.2 }]}>Količina</Text>
+                    </View>
                     {parsirano.stavke.map((st, i) => (
-                      <View key={i} style={styles.pregledSpecifikacijaRed}>
-                        <Text style={styles.pregledSpecifikacijaOpis}>• {st.opis}</Text>
-                        <Text style={styles.pregledSpecifikacijaCena}>
-                          {st.iznos.toLocaleString('sr-RS')} {st.valuta}
+                      <View key={i} style={styles.pregledTabelaNabavkaRed}>
+                        <Text style={[styles.pregledCellTekst, { width: 30, color: '#10B981', fontWeight: 'bold' }]}>
+                          {i + 1}
+                        </Text>
+                        <Text style={[styles.pregledCellTekst, { flex: 2, fontWeight: '700' }]}>
+                          {st.opis}
+                        </Text>
+                        <Text style={[styles.pregledCellTekst, { flex: 1.2, color: '#38BDF8' }]}>
+                          {st.kolicina || '1 kom'}
                         </Text>
                       </View>
                     ))}
-                    <View style={styles.pregledSpecifikacijaZbirRed}>
-                      <Text style={styles.pregledSpecifikacijaZbirLabel}>💰 UKUPAN ZBIR:</Text>
-                      <Text style={styles.pregledSpecifikacijaZbirVrednost}>
-                        {parsirano.iznos.toLocaleString('sr-RS')} {parsirano.valuta}
+                  </View>
+                ) : null}
+
+                {/* 2. AKO JE POSAO (Prikaz po slici 1: Br, Opis, Jed. mere, Količina, Cena, Ukupno) */}
+                {aktivniTipSnimanja === 'posao' && parsirano.stavke && parsirano.stavke.length > 0 ? (
+                  <View style={styles.pregledTabelaPosao}>
+                    <View style={styles.pregledTabelaNabavkaHeader}>
+                      <Text style={[styles.pregledColHeader, { width: 25 }]}>Br.</Text>
+                      <Text style={[styles.pregledColHeader, { flex: 2 }]}>Opis</Text>
+                      <Text style={[styles.pregledColHeader, { width: 45 }]}>Jed.</Text>
+                      <Text style={[styles.pregledColHeader, { width: 45 }]}>Kol.</Text>
+                      <Text style={[styles.pregledColHeader, { width: 65, textAlign: 'right' }]}>Cena</Text>
+                      <Text style={[styles.pregledColHeader, { width: 75, textAlign: 'right' }]}>Ukupno</Text>
+                    </View>
+                    {parsirano.stavke.map((st, i) => (
+                      <View key={i} style={styles.pregledTabelaNabavkaRed}>
+                        <Text style={[styles.pregledCellTekst, { width: 25, color: '#F59E0B', fontWeight: 'bold' }]}>
+                          {i + 1}
+                        </Text>
+                        <Text style={[styles.pregledCellTekst, { flex: 2, fontWeight: '600' }]} numberOfLines={1}>
+                          {st.opis}
+                        </Text>
+                        <Text style={[styles.pregledCellTekst, { width: 45, color: '#94A3B8' }]}>
+                          {st.jed_mere || 'kom'}
+                        </Text>
+                        <Text style={[styles.pregledCellTekst, { width: 45 }]}>
+                          {String(st.kolicina || 1)}
+                        </Text>
+                        <Text style={[styles.pregledCellTekst, { width: 65, textAlign: 'right' }]}>
+                          {st.jed_cena ? st.jed_cena.toLocaleString('sr-RS') : '-'}
+                        </Text>
+                        <Text style={[styles.pregledCellTekst, { width: 75, textAlign: 'right', fontWeight: 'bold', color: '#10B981' }]}>
+                          {st.iznos.toLocaleString('sr-RS')}
+                        </Text>
+                      </View>
+                    ))}
+                    <View style={styles.pregledZbirKutija}>
+                      <Text style={styles.pregledZbirTekst}>
+                        UKUPNO: <Text style={{ color: '#10B981', fontWeight: 'bold' }}>{(parsirano.ukupno_sa_pdv || parsirano.iznos).toLocaleString('sr-RS')} {parsirano.valuta}</Text>
                       </Text>
                     </View>
                   </View>
-                ) : (
-                  <Text style={styles.pregledStavka}>
-                    💰 Iznos: <Text style={{ color: '#34D399', fontWeight: 'bold' }}>{parsirano.iznos.toLocaleString('sr-RS')} {parsirano.valuta}</Text>
-                    {parsirano.je_kapara ? ' (Kapara)' : ''}
-                  </Text>
-                )}
+                ) : null}
 
-                {parsirano.rok_datum && (
-                  <Text style={styles.pregledStavka}>
-                    📅 Datum/Rok: <Text style={{ color: '#60A5FA' }}>{new Date(parsirano.rok_datum).toLocaleString('sr-RS')}</Text>
-                  </Text>
-                )}
-                <Text style={styles.pregledStavka}>
-                  📝 Zadatak/Opis: <Text style={{ color: '#fff' }}>{parsirano.opis_zadatka}</Text>
-                </Text>
+                {/* 3. AKO JE ZAKAZANI TERMIN */}
+                {aktivniTipSnimanja === 'zakazano' ? (
+                  <View style={styles.pregledZakazanoKutija}>
+                    <Text style={styles.pregledStavka}>
+                      👤 Klijent: <Text style={{ color: '#fff', fontWeight: 'bold' }}>{parsirano.klijent_ime || 'Nije prepoznato'}</Text>
+                    </Text>
+                    {parsirano.klijent_telefon ? (
+                      <Text style={styles.pregledStavka}>
+                        📞 Telefon: <Text style={{ color: '#FDE047', fontWeight: 'bold' }}>{parsirano.klijent_telefon}</Text>
+                      </Text>
+                    ) : null}
+                    {parsirano.lokacija ? (
+                      <Text style={styles.pregledStavka}>
+                        📍 Adresa/Grad: <Text style={{ color: '#38BDF8', fontWeight: 'bold' }}>{parsirano.lokacija}</Text>
+                      </Text>
+                    ) : null}
+                    {parsirano.rok_datum ? (
+                      <Text style={styles.pregledStavka}>
+                        ⏰ Termin: <Text style={{ color: '#F43F5E', fontWeight: 'bold' }}>{new Date(parsirano.rok_datum).toLocaleString('sr-RS')}</Text>
+                      </Text>
+                    ) : null}
+                    <Text style={styles.pregledStavka}>
+                      📝 Napomena: <Text style={{ color: '#CBD5E1' }}>{parsirano.opis_zadatka}</Text>
+                    </Text>
+                  </View>
+                ) : null}
 
                 <TouchableOpacity style={styles.btnSacuvajPotvrda} onPress={sacuvajNoviPodsetnik}>
-                  <Text style={styles.btnSacuvajPotvrdaTekst}>✓ POTVRDI I SAČUVAJ</Text>
+                  <Text style={styles.btnSacuvajPotvrdaTekst}>✓ SAČUVAJ DOKUMENT U LISTU</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -1285,8 +1374,8 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
         </View>
       )}
 
-      {/* MODAL: PROFESIONALNI LIST PAPIRA / SPECIFIKACIJA RADOVA I MATERIJALA */}
-      {editUnosOtvoren && (
+      {/* 1. MODAL ZA SPECIFIKACIJU POSLA (SLIKA 1) */}
+      {editUnosOtvoren && (izabraniPodsetnikZaEdit?.tip_zabelezke === 'posao' || !izabraniPodsetnikZaEdit?.tip_zabelezke) && (
         <SpecifikacijaModal
           vidljiv={editUnosOtvoren}
           posao={izabraniPodsetnikZaEdit}
@@ -1300,6 +1389,42 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
             await ucitajPodatke();
             SyncService.izvrsiSinhronizaciju().then(() => ucitajPodatke());
             Alert.alert('Sačuvano', 'Specifikacija i promene su uspešno ažurirane!');
+          }}
+        />
+      )}
+
+      {/* 2. MODAL ZA NABAVKU / LISTU ZA KUPOVINU (SLIKA 2) */}
+      {editUnosOtvoren && izabraniPodsetnikZaEdit?.tip_zabelezke === 'nabavka' && (
+        <NabavkaModal
+          vidljiv={editUnosOtvoren}
+          nabavka={izabraniPodsetnikZaEdit}
+          onZatvori={() => {
+            setEditUnosOtvoren(false);
+            setIzabraniPodsetnikZaEdit(null);
+          }}
+          onSacuvaj={async (azuriran) => {
+            await StorageService.azurirajPodsetnik(azuriran.uuid_lokalni, azuriran);
+            await ucitajPodatke();
+            SyncService.izvrsiSinhronizaciju().then(() => ucitajPodatke());
+            Alert.alert('Sačuvano', 'Lista za nabavku je uspešno ažurirana!');
+          }}
+        />
+      )}
+
+      {/* 3. MODAL ZA ZAKAZANI POSAO / TERMIN */}
+      {editUnosOtvoren && izabraniPodsetnikZaEdit?.tip_zabelezke === 'zakazano' && (
+        <ZakazaniPosaoModal
+          vidljiv={editUnosOtvoren}
+          posao={izabraniPodsetnikZaEdit}
+          onZatvori={() => {
+            setEditUnosOtvoren(false);
+            setIzabraniPodsetnikZaEdit(null);
+          }}
+          onSacuvaj={async (azuriran) => {
+            await StorageService.azurirajPodsetnik(azuriran.uuid_lokalni, azuriran);
+            await ucitajPodatke();
+            SyncService.izvrsiSinhronizaciju().then(() => ucitajPodatke());
+            Alert.alert('Sačuvano', 'Zakazani termin je uspešno ažuriran!');
           }}
         />
       )}
@@ -2059,5 +2184,178 @@ const styles = StyleSheet.create({
     color: '#FCA5A5',
     fontSize: 12,
     fontWeight: '700'
+  },
+  // Redizajnirana kartica posla kao jedan kompaktan red
+  posaoKarticaRed: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#334155'
+  },
+  posaoKarticaZavrseno: {
+    opacity: 0.55
+  },
+  posaoIkonaOmotac: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12
+  },
+  posaoIkonaTekst: {
+    fontSize: 20
+  },
+  posaoRedniBroj: {
+    fontSize: 9,
+    color: '#F59E0B',
+    fontWeight: '900'
+  },
+  posaoSredina: {
+    flex: 1,
+    marginRight: 8
+  },
+  posaoGornjiRed: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 3
+  },
+  posaoNaslov: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#F8FAFC',
+    flex: 1,
+    marginRight: 6
+  },
+  posaoDatumTekst: {
+    fontSize: 11,
+    color: '#64748B'
+  },
+  posaoKlijentLokacija: {
+    fontSize: 12,
+    color: '#38BDF8',
+    fontWeight: '600',
+    marginBottom: 3
+  },
+  posaoSazetakStavki: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginBottom: 3
+  },
+  posaoRokTekst: {
+    fontSize: 11,
+    color: '#F59E0B',
+    fontWeight: '600'
+  },
+  posaoDesnoKontejner: {
+    alignItems: 'flex-end',
+    justifyContent: 'space-between'
+  },
+  posaoIznosBedz: {
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#334155',
+    marginBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4
+  },
+  posaoIznosCifra: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#10B981'
+  },
+  posaoIznosValuta: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#64748B'
+  },
+  posaoAkcijeRed: {
+    flexDirection: 'row',
+    gap: 4
+  },
+  btnMalaAkcijaPosao: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    backgroundColor: '#334155',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  btnMalaAkcijaBrisi: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)'
+  },
+  btnAkcijaTekst: {
+    fontSize: 14
+  },
+  // Stilovi za pregled popunjenih tabela u snimanju
+  pregledTabelaNabavka: {
+    backgroundColor: '#0F172A',
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: '#334155'
+  },
+  pregledTabelaNabavkaHeader: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155',
+    paddingBottom: 6,
+    marginBottom: 4
+  },
+  pregledColHeader: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B'
+  },
+  pregledTabelaNabavkaRed: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(51, 65, 85, 0.4)'
+  },
+  pregledCellTekst: {
+    fontSize: 12,
+    color: '#F8FAFC'
+  },
+  pregledTabelaPosao: {
+    backgroundColor: '#0F172A',
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: '#334155'
+  },
+  pregledZbirKutija: {
+    marginTop: 8,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#334155',
+    alignItems: 'flex-end'
+  },
+  pregledZbirTekst: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#F8FAFC'
+  },
+  pregledZakazanoKutija: {
+    backgroundColor: '#0F172A',
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+    gap: 4
   }
 });

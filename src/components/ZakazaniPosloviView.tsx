@@ -6,13 +6,15 @@ import {
   TouchableOpacity,
   ScrollView,
   Linking,
-  Platform
+  Platform,
+  Alert
 } from 'react-native';
 import { LokalniPodsetnik } from '../services/storage';
 
 interface ZakazaniPosloviViewProps {
   podsetnici: LokalniPodsetnik[];
   onIzaberiPosao: (item: LokalniPodsetnik) => void;
+  onObrisi: (uuid: string) => void;
   onZavrsiPosao: (uuid: string, trenutno: boolean) => void;
   onDodajZakazani: () => void;
 }
@@ -20,162 +22,43 @@ interface ZakazaniPosloviViewProps {
 export default function ZakazaniPosloviView({
   podsetnici,
   onIzaberiPosao,
+  onObrisi,
   onZavrsiPosao,
   onDodajZakazani
 }: ZakazaniPosloviViewProps) {
-  const aktivni = podsetnici.filter(p => !p.je_zavrseno);
-
-  const danas = new Date();
-  danas.setHours(0, 0, 0, 0);
-
-  const sutra = new Date(danas);
-  sutra.setDate(sutra.getDate() + 1);
-
-  const krajNedelje = new Date(danas);
-  krajNedelje.setDate(krajNedelje.getDate() + 7);
-
-  const posloviDanas: LokalniPodsetnik[] = [];
-  const posloviOveNedelje: LokalniPodsetnik[] = [];
-  const posloviKasnije: LokalniPodsetnik[] = [];
-  const posloviBezDatuma: LokalniPodsetnik[] = [];
-
-  aktivni.forEach(p => {
-    if (!p.rok_datum) {
-      posloviBezDatuma.push(p);
-      return;
-    }
-
-    const d = new Date(p.rok_datum);
-    d.setHours(0, 0, 0, 0);
-
-    if (d.getTime() === danas.getTime()) {
-      posloviDanas.push(p);
-    } else if (d.getTime() > danas.getTime() && d.getTime() <= krajNedelje.getTime()) {
-      posloviOveNedelje.push(p);
-    } else if (d.getTime() > krajNedelje.getTime()) {
-      posloviKasnije.push(p);
-    } else {
-      // Datum je istekao a posao nije završen
-      posloviDanas.push(p);
-    }
-  });
+  // Filtriramo poslove tipa 'zakazano' ili koji imaju termin, sortirani po kreiranju opadajuće (najnovije na vrhu)
+  const zakazani = podsetnici
+    .filter(p => p.tip_zabelezke === 'zakazano' || (!p.tip_zabelezke && p.rok_datum))
+    .sort((a, b) => new Date(b.kreirano_na_uredjaju).getTime() - new Date(a.kreirano_na_uredjaju).getTime());
 
   const pozoviBroj = (broj?: string | null) => {
-    if (!broj) return;
+    if (!broj) {
+      Alert.alert('Telefon', 'Klijent nema upisan broj telefona.');
+      return;
+    }
     Linking.openURL(`tel:${broj}`).catch(() => {});
   };
 
   const otvoriNavigaciju = (lokacija?: string) => {
-    if (!lokacija) return;
-    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lokacija)}`;
-    Linking.openURL(url).catch(() => {});
+    if (!lokacija) {
+      Alert.alert('Lokacija', 'Adresa ili grad nisu upisani.');
+      return;
+    }
+    const url = Platform.select({
+      ios: `maps:0,0?q=${encodeURIComponent(lokacija)}`,
+      android: `geo:0,0?q=${encodeURIComponent(lokacija)}`,
+      web: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lokacija)}`
+    });
+    if (url) Linking.openURL(url).catch(() => {});
   };
 
-  const renderGrupa = (naslov: string, ikona: string, stavke: LokalniPodsetnik[], boja: string) => {
-    if (stavke.length === 0) return null;
-
-    return (
-      <View style={styles.grupaKutija}>
-        <View style={styles.grupaHeader}>
-          <Text style={[styles.grupaNaslov, { color: boja }]}>
-            {ikona} {naslov} ({stavke.length})
-          </Text>
-        </View>
-
-        <View style={styles.grupaLista}>
-          {stavke.map(item => {
-            const datumStr = item.rok_datum
-              ? new Date(item.rok_datum).toLocaleDateString('sr-RS', {
-                  day: 'numeric',
-                  month: 'short',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })
-              : 'Bez definisanog termina';
-
-            return (
-              <View key={item.uuid_lokalni} style={styles.kartica}>
-                {/* Zaglavlje kartice */}
-                <View style={styles.karticaTop}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.klijentIme}>
-                      👤 {item.klijent_ime || 'Nepoznat klijent'}
-                    </Text>
-                    <Text style={styles.terminTekst}>🕒 {datumStr}</Text>
-                  </View>
-
-                  <View style={styles.akcijeBrze}>
-                    <TouchableOpacity
-                      style={styles.btnOlovka}
-                      onPress={() => onIzaberiPosao(item)}
-                    >
-                      <Text style={styles.btnOlovkaTekst}>✏️</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.btnZavrsi}
-                      onPress={() => onZavrsiPosao(item.uuid_lokalni, item.je_zavrseno)}
-                    >
-                      <Text style={styles.btnZavrsiTekst}>✓</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                {/* Detalji posla i napomena */}
-                <View style={styles.detaljiKontejner}>
-                  <Text style={styles.vrstaPoslaTekst}>
-                    🔨 <Text style={{ fontWeight: '700', color: '#F4F4F5' }}>Vrsta posla:</Text>{' '}
-                    {item.opis_zadatka}
-                  </Text>
-
-                  {item.klijent_telefon ? (
-                    <TouchableOpacity
-                      style={styles.redKontakt}
-                      onPress={() => pozoviBroj(item.klijent_telefon)}
-                    >
-                      <Text style={styles.kontaktTekst}>
-                        📞 <Text style={styles.kontaktLink}>{item.klijent_telefon}</Text> (Pozovi)
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
-
-                  {item.lokacija ? (
-                    <TouchableOpacity
-                      style={styles.redKontakt}
-                      onPress={() => otvoriNavigaciju(item.lokacija)}
-                    >
-                      <Text style={styles.kontaktTekst}>
-                        📍 <Text style={styles.kontaktLink}>{item.lokacija}</Text> 🗺️ (Navigacija)
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
-
-                  {item.iznos > 0 ? (
-                    <View style={styles.sumaRed}>
-                      <Text style={styles.sumaOznaka}>
-                        {item.je_kapara ? '🟡 Avans/Kapara:' : '💰 Dogovoreno:'}
-                      </Text>
-                      <Text style={styles.sumaVrednost}>
-                        {item.iznos.toLocaleString()} {item.valuta}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              </View>
-            );
-          })}
-        </View>
-      </View>
-    );
-  };
-
-  if (aktivni.length === 0) {
+  if (zakazani.length === 0) {
     return (
       <View style={styles.prazno}>
         <Text style={styles.praznoIkona}>📅</Text>
-        <Text style={styles.praznoNaslov}>Nema zakazanih poslova</Text>
+        <Text style={styles.praznoNaslov}>Nemate zakazanih poslova</Text>
         <Text style={styles.praznoTekst}>
-          Izdiktirajte novi zakazani posao glasom (npr. "Sutra u 10h kod Marka Petrovića, 0641234567, Smederevo, krečenje stana").
+          Kliknite na mikrofon ili dugme ispod i izdiktirajte zakazivanje (npr. "Jovan Petrović, 064 123 4567, Smederevo Knez Mihailova 12, sutra u 10 sati, krečenje stana").
         </Text>
         <TouchableOpacity style={styles.btnDodajPrazno} onPress={onDodajZakazani}>
           <Text style={styles.btnDodajPraznoTekst}>🎙️ Zakaži novi posao</Text>
@@ -185,70 +68,291 @@ export default function ZakazaniPosloviView({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      {renderGrupa('Danas & Hitno', '🔴', posloviDanas, '#EF4444')}
-      {renderGrupa('Ove nedelje', '🟡', posloviOveNedelje, '#F59E0B')}
-      {renderGrupa('Kasniji termini', '🔵', posloviKasnije, '#38BDF8')}
-      {renderGrupa('Nezakazani radovi', '⚪', posloviBezDatuma, '#A1A1AA')}
+    <ScrollView contentContainerStyle={styles.listaKontejner}>
+      <View style={styles.zaglavljeTraka}>
+        <Text style={styles.zaglavljeNaslov}>ZAKAZANI POSLOVI I TERMINI ({zakazani.length})</Text>
+        <TouchableOpacity style={styles.btnNoviMali} onPress={onDodajZakazani}>
+          <Text style={styles.btnNoviMaliTekst}>+ Zakaži termin</Text>
+        </TouchableOpacity>
+      </View>
+
+      {zakazani.map((item, idx) => {
+        const datumTerminaStr = item.rok_datum
+          ? new Date(item.rok_datum).toLocaleDateString('sr-RS', {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit'
+            })
+          : 'Termin nije definisan';
+
+        const datumKreiranjaStr = new Date(item.kreirano_na_uredjaju).toLocaleDateString('sr-RS', {
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        return (
+          <TouchableOpacity
+            key={item.uuid_lokalni}
+            style={[styles.karticaRed, item.je_zavrseno && styles.karticaRedZavrseno]}
+            activeOpacity={0.8}
+            onPress={() => onIzaberiPosao(item)}
+          >
+            {/* Leva strana: Ikona i Redni broj */}
+            <View style={styles.ikonaOmotac}>
+              <Text style={styles.ikonaTekst}>📅</Text>
+              <Text style={styles.redniBrojTekst}>#{idx + 1}</Text>
+            </View>
+
+            {/* Sredina: Ime i prezime, telefon, adresa, termin, napomena */}
+            <View style={styles.srednjiDeo}>
+              <View style={styles.naslovRed}>
+                <Text style={styles.klijentIme} numberOfLines={1}>
+                  {item.klijent_ime || 'Klijent (nije navedeno ime)'}
+                </Text>
+                <Text style={styles.datumKreiranja}>{datumKreiranjaStr}</Text>
+              </View>
+
+              {/* Termin bedž */}
+              <View style={styles.terminBedz}>
+                <Text style={styles.terminBedzTekst}>⏰ Termin: {datumTerminaStr}</Text>
+              </View>
+
+              {/* Adresa i lokacija */}
+              {item.lokacija ? (
+                <Text style={styles.infoTekst} numberOfLines={1}>
+                  📍 {item.lokacija}
+                </Text>
+              ) : null}
+
+              {/* Telefon */}
+              {item.klijent_telefon ? (
+                <Text style={styles.infoTekst} numberOfLines={1}>
+                  📞 {item.klijent_telefon}
+                </Text>
+              ) : null}
+
+              {/* Napomena / opis */}
+              <Text style={styles.napomenaTekst} numberOfLines={2}>
+                📝 {item.opis_zadatka || 'Bez dodatnih napomena'}
+              </Text>
+            </View>
+
+            {/* Desna strana: Akcije - Pozovi, Mapa, Edit, Briši */}
+            <View style={styles.akcijeStupac}>
+              {item.klijent_telefon ? (
+                <TouchableOpacity
+                  style={[styles.btnMalaAkcija, styles.btnPoziv]}
+                  onPress={() => pozoviBroj(item.klijent_telefon)}
+                >
+                  <Text style={styles.btnAkcijaIkona}>📞</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              {item.lokacija ? (
+                <TouchableOpacity
+                  style={[styles.btnMalaAkcija, styles.btnMapa]}
+                  onPress={() => otvoriNavigaciju(item.lokacija)}
+                >
+                  <Text style={styles.btnAkcijaIkona}>🗺️</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              <TouchableOpacity
+                style={[styles.btnMalaAkcija, styles.btnEdit]}
+                onPress={() => onIzaberiPosao(item)}
+              >
+                <Text style={styles.btnAkcijaIkona}>✏️</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.btnMalaAkcija, styles.btnBrisi]}
+                onPress={() => {
+                  Alert.alert(
+                    'Brisanje termina',
+                    'Da li ste sigurni da želite da obrišete ovaj zakazani posao?',
+                    [
+                      { text: 'Odustani', style: 'cancel' },
+                      { text: 'Obriši', style: 'destructive', onPress: () => onObrisi(item.uuid_lokalni) }
+                    ]
+                  );
+                }}
+              >
+                <Text style={styles.btnAkcijaIkona}>🗑️</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        );
+      })}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, paddingBottom: 110, maxWidth: 900, width: '100%', alignSelf: 'center' },
-  prazno: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, marginTop: 60 },
-  praznoIkona: { fontSize: 64, marginBottom: 16 },
-  praznoNaslov: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginBottom: 8, textAlign: 'center' },
-  praznoTekst: { fontSize: 14, color: '#A1A1AA', textAlign: 'center', lineHeight: 22, maxWidth: 440, marginBottom: 20 },
-  btnDodajPrazno: { backgroundColor: '#38BDF8', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12 },
-  btnDodajPraznoTekst: { color: '#0F172A', fontSize: 15, fontWeight: '800' },
-  grupaKutija: { marginBottom: 20 },
-  grupaHeader: { marginBottom: 10 },
-  grupaNaslov: { fontSize: 17, fontWeight: '800', letterSpacing: 0.5 },
-  grupaLista: { gap: 12 },
-  kartica: {
-    backgroundColor: '#1E1E24',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#2A2A35'
+  listaKontejner: {
+    padding: 14,
+    paddingBottom: 110
   },
-  karticaTop: {
+  zaglavljeTraka: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    borderBottomWidth: 1,
-    borderBottomColor: '#272730',
-    paddingBottom: 12,
+    alignItems: 'center',
     marginBottom: 12
   },
-  klijentIme: { fontSize: 17, fontWeight: '800', color: '#FFFFFF' },
-  terminTekst: { fontSize: 13, color: '#38BDF8', marginTop: 4, fontWeight: '700' },
-  akcijeBrze: { flexDirection: 'row', gap: 8 },
-  btnOlovka: { backgroundColor: '#272730', padding: 8, borderRadius: 8 },
-  btnOlovkaTekst: { fontSize: 16 },
-  btnZavrsi: {
-    backgroundColor: '#059669',
-    width: 34,
-    height: 34,
-    borderRadius: 8,
+  zaglavljeNaslov: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.5
+  },
+  btnNoviMali: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    backgroundColor: '#38BDF8',
+    borderRadius: 6
+  },
+  btnNoviMaliTekst: {
+    color: '#0F172A',
+    fontWeight: 'bold',
+    fontSize: 12
+  },
+  karticaRed: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#334155'
+  },
+  karticaRedZavrseno: {
+    opacity: 0.6
+  },
+  ikonaOmotac: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12
+  },
+  ikonaTekst: {
+    fontSize: 20
+  },
+  redniBrojTekst: {
+    fontSize: 9,
+    color: '#38BDF8',
+    fontWeight: '900'
+  },
+  srednjiDeo: {
+    flex: 1,
+    marginRight: 8
+  },
+  naslovRed: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4
+  },
+  klijentIme: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    flex: 1,
+    marginRight: 6
+  },
+  datumKreiranja: {
+    fontSize: 11,
+    color: '#64748B'
+  },
+  terminBedz: {
+    backgroundColor: '#0F172A',
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#38BDF8'
+  },
+  terminBedzTekst: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: 'bold'
+  },
+  infoTekst: {
+    fontSize: 12,
+    color: '#CBD5E1',
+    marginBottom: 2
+  },
+  napomenaTekst: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 2
+  },
+  akcijeStupac: {
+    flexDirection: 'column',
+    gap: 4
+  },
+  btnMalaAkcija: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center'
   },
-  btnZavrsiTekst: { color: '#FFFFFF', fontWeight: '900', fontSize: 18 },
-  detaljiKontejner: { gap: 8 },
-  vrstaPoslaTekst: { fontSize: 14, color: '#CBD5E1', lineHeight: 20 },
-  redKontakt: { paddingVertical: 2 },
-  kontaktTekst: { fontSize: 14, color: '#94A3B8' },
-  kontaktLink: { color: '#38BDF8', fontWeight: '700', textDecorationLine: 'underline' },
-  sumaRed: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: '#272730',
-    padding: 10,
-    borderRadius: 8,
-    marginTop: 6
+  btnPoziv: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)'
   },
-  sumaOznaka: { fontSize: 13, color: '#CBD5E1', fontWeight: '600' },
-  sumaVrednost: { fontSize: 14, color: '#34D399', fontWeight: '800' }
+  btnMapa: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)'
+  },
+  btnEdit: {
+    backgroundColor: '#334155'
+  },
+  btnBrisi: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)'
+  },
+  btnAkcijaIkona: {
+    fontSize: 14
+  },
+  prazno: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+    marginTop: 30
+  },
+  praznoIkona: {
+    fontSize: 54,
+    marginBottom: 12
+  },
+  praznoNaslov: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#F8FAFC',
+    marginBottom: 8
+  },
+  praznoTekst: {
+    fontSize: 14,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20
+  },
+  btnDodajPrazno: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: '#38BDF8',
+    borderRadius: 8
+  },
+  btnDodajPraznoTekst: {
+    color: '#0F172A',
+    fontWeight: 'bold',
+    fontSize: 14
+  }
 });
