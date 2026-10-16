@@ -77,7 +77,9 @@ export default function NabavkaView({
             <View style={styles.srednjiDeo}>
               <View style={styles.naslovRed}>
                 <Text style={styles.naslovListe} numberOfLines={1}>
-                  {nab.naslov || `Nabavka #${nab.uuid_lokalni.slice(-4)}`}
+                  {nab.naslov && !nab.naslov.includes('Građevinsk') && !nab.naslov.includes('Specifikacija')
+                    ? nab.naslov
+                    : 'Nabavka'}
                 </Text>
                 <Text style={styles.datumTekst}>{datumStr}</Text>
               </View>

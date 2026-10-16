@@ -28,7 +28,11 @@ export default function NabavkaModal({
 }: NabavkaModalProps) {
   if (!vidljiv || !nabavka) return null;
 
-  const [naslov, setNaslov] = useState(nabavka.naslov || 'Lista za nabavku');
+  const [naslov, setNaslov] = useState(
+    nabavka.naslov && !nabavka.naslov.includes('Građevinsk') && !nabavka.naslov.includes('Specifikacija')
+      ? nabavka.naslov
+      : 'Nabavka'
+  );
   const [stavke, setStavke] = useState<StavkaSpecifikacije[]>(() => {
     if (nabavka.stavke && nabavka.stavke.length > 0) {
       return nabavka.stavke.map((st, i) => ({

@@ -471,7 +471,15 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
 
   const otvoriModalZaIzmenu = (item: LokalniPodsetnik) => {
     zaustaviSnimanjePolja();
-    setIzabraniPodsetnikZaEdit(item);
+    const tip = item.tip_zabelezke || (glavniPrikaz === 'nabavka' ? 'nabavka' : (glavniPrikaz === 'kalendar' ? 'zakazano' : 'posao'));
+    const itemSaTipom: LokalniPodsetnik = {
+      ...item,
+      tip_zabelezke: tip,
+      naslov: tip === 'nabavka' && (!item.naslov || item.naslov.includes('Građevinsk') || item.naslov.includes('Posao'))
+        ? 'Lista za nabavku'
+        : item.naslov
+    };
+    setIzabraniPodsetnikZaEdit(itemSaTipom);
     setEditImeKlijenta(item.klijent_ime || '');
     setEditTelefonKlijenta(item.klijent_telefon || '');
     setEditLokacija(item.lokacija || '');
@@ -772,11 +780,6 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
           <Text style={[styles.glavniMeniTekst, glavniPrikaz === 'nabavka' && styles.glavniMeniTekstAktivno]}>
             🛒 Nabavka
           </Text>
-          {brojStavkiZaNabavku > 0 && (
-            <View style={styles.badgeBroj}>
-              <Text style={styles.badgeBrojTekst}>{brojStavkiZaNabavku}</Text>
-            </View>
-          )}
         </TouchableOpacity>
 
         <TouchableOpacity
