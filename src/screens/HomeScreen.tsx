@@ -796,7 +796,6 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
           podsetnici={podsetnici}
           onOtvoriEdit={otvoriModalZaIzmenu}
           onObrisi={(uuid) => obrisiPoUuid(uuid)}
-          onDodajNovuNabavku={() => otvoriModalZaGovor('nabavka')}
         />
       )}
 
@@ -807,7 +806,6 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
           onIzaberiPosao={otvoriModalZaIzmenu}
           onObrisi={(uuid) => obrisiPoUuid(uuid)}
           onZavrsiPosao={prebaciZavrseno}
-          onDodajZakazani={() => otvoriModalZaGovor('zakazano')}
         />
       )}
 

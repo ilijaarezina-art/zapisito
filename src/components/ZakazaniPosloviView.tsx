@@ -16,15 +16,13 @@ interface ZakazaniPosloviViewProps {
   onIzaberiPosao: (item: LokalniPodsetnik) => void;
   onObrisi: (uuid: string) => void;
   onZavrsiPosao: (uuid: string, trenutno: boolean) => void;
-  onDodajZakazani: () => void;
 }
 
 export default function ZakazaniPosloviView({
   podsetnici,
   onIzaberiPosao,
   onObrisi,
-  onZavrsiPosao,
-  onDodajZakazani
+  onZavrsiPosao
 }: ZakazaniPosloviViewProps) {
   // Filtriramo poslove tipa 'zakazano' ili koji imaju termin, sortirani po kreiranju opadajuće (najnovije na vrhu)
   const zakazani = podsetnici
@@ -58,11 +56,8 @@ export default function ZakazaniPosloviView({
         <Text style={styles.praznoIkona}>📅</Text>
         <Text style={styles.praznoNaslov}>Nemate zakazanih poslova</Text>
         <Text style={styles.praznoTekst}>
-          Kliknite na mikrofon ili dugme ispod i izdiktirajte zakazivanje (npr. "Jovan Petrović, 064 123 4567, Smederevo Knez Mihailova 12, sutra u 10 sati, krečenje stana").
+          Pritisnite glavno dugme "Zapiši to" na dnu ekrana i izdiktirajte zakazivanje (npr. "Jovan Petrović, 064 123 4567, Smederevo Knez Mihailova 12, sutra u 10 sati, krečenje stana").
         </Text>
-        <TouchableOpacity style={styles.btnDodajPrazno} onPress={onDodajZakazani}>
-          <Text style={styles.btnDodajPraznoTekst}>🎙️ Zakaži novi posao</Text>
-        </TouchableOpacity>
       </View>
     );
   }
@@ -71,9 +66,6 @@ export default function ZakazaniPosloviView({
     <ScrollView contentContainerStyle={styles.listaKontejner}>
       <View style={styles.zaglavljeTraka}>
         <Text style={styles.zaglavljeNaslov}>ZAKAZANI POSLOVI I TERMINI ({zakazani.length})</Text>
-        <TouchableOpacity style={styles.btnNoviMali} onPress={onDodajZakazani}>
-          <Text style={styles.btnNoviMaliTekst}>+ Zakaži termin</Text>
-        </TouchableOpacity>
       </View>
 
       {zakazani.map((item, idx) => {

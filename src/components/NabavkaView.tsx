@@ -13,14 +13,12 @@ interface NabavkaViewProps {
   podsetnici: LokalniPodsetnik[];
   onOtvoriEdit: (posao: LokalniPodsetnik) => void;
   onObrisi: (uuid: string) => void;
-  onDodajNovuNabavku: () => void;
 }
 
 export default function NabavkaView({
   podsetnici,
   onOtvoriEdit,
-  onObrisi,
-  onDodajNovuNabavku
+  onObrisi
 }: NabavkaViewProps) {
   // Filtriramo dokumente tipa 'nabavka' i sortiramo po datumu kreiranja opadajuće (najnovije na vrhu)
   const nabavke = podsetnici
@@ -33,11 +31,8 @@ export default function NabavkaView({
         <Text style={styles.praznoIkona}>🛒</Text>
         <Text style={styles.praznoNaslov}>Nemate sačuvanih lista za nabavku</Text>
         <Text style={styles.praznoTekst}>
-          Kliknite na mikrofon ili dugme ispod i izdiktirajte namirnice (npr. "Jabuke 2kg, Banane 1 kg, kafa 200gr"). Aplikacija će automatski napraviti tabelu za kupovinu!
+          Pritisnite glavno dugme "Zapiši to" na dnu ekrana i izdiktirajte namirnice (npr. "Jabuke 2kg, Banane 1 kg, kafa 200gr"). Aplikacija će automatski napraviti tabelu za kupovinu!
         </Text>
-        <TouchableOpacity style={styles.btnDodajPrazno} onPress={onDodajNovuNabavku}>
-          <Text style={styles.btnDodajPraznoTekst}>🎙️ Izdiktiraj novu nabavku</Text>
-        </TouchableOpacity>
       </View>
     );
   }
@@ -46,9 +41,6 @@ export default function NabavkaView({
     <ScrollView contentContainerStyle={styles.listaKontejner}>
       <View style={styles.zaglavljeTraka}>
         <Text style={styles.zaglavljeNaslov}>LISTE ZA NABAVKU ({nabavke.length})</Text>
-        <TouchableOpacity style={styles.btnNovaNabavkaMala} onPress={onDodajNovuNabavku}>
-          <Text style={styles.btnNovaNabavkaMalaTekst}>+ Nova lista</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Prikaz svake liste kao jedan čist red, najnovije na vrhu */}
