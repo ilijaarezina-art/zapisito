@@ -91,13 +91,31 @@ export default function ZakazaniPosaoModal({
     if (url) Linking.openURL(url);
   };
 
+  const posaljiPotvrduTermina = () => {
+    const datum = datumTermina ? datumTermina : 'dogovorenom terminu';
+    const ime = imePrezime ? ` ${imePrezime}` : '';
+    const adresa = adresaGrad ? ` na adresi ${adresaGrad}` : '';
+    const poruka = `Pozdrav${ime}, potvrđujem zakazani termin${adresa} (${datum}) za radove: "${napomena || 'dogovoreni posao'}". Vidimo se!`;
+
+    if (telefon) {
+      let tel = telefon.replace(/[\s\-\/]/g, '');
+      if (tel.startsWith('06')) tel = '381' + tel.slice(1);
+      if (tel.startsWith('+')) tel = tel.slice(1);
+      Linking.openURL(`https://wa.me/${tel}?text=${encodeURIComponent(poruka)}`).catch(() => {
+        Linking.openURL(`sms:${telefon}?body=${encodeURIComponent(poruka)}`);
+      });
+    } else {
+      Linking.openURL(`https://wa.me/?text=${encodeURIComponent(poruka)}`).catch(() => {});
+    }
+  };
+
   return (
     <View style={styles.modalOverlay}>
       <View style={styles.prozorKontejner}>
-        {/* Zaglavlje */}
+        {/* Zaglavlje - Moderni svetli stil */}
         <View style={styles.modalHeader}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.dokumentNadnaslov}>DOKUMENT: ZAKAZANI POSAO / TERMIN</Text>
+            <Text style={styles.dokumentNadnaslov}>📅 DOKUMENT: ZAKAZANI POSAO / TERMIN</Text>
             <Text style={styles.dokumentDatum}>
               Radni nalog #{posao.uuid_lokalni.slice(-6).toUpperCase()}
             </Text>
@@ -118,7 +136,7 @@ export default function ZakazaniPosaoModal({
                 style={styles.inputTekst}
                 value={imePrezime}
                 onChangeText={setImePrezime}
-                placeholder="Unesite ime i prezime (npr. Petar Petrović)..."
+                placeholder="npr. Jovan Petrović..."
                 placeholderTextColor="#94A3B8"
               />
             </View>
@@ -137,9 +155,9 @@ export default function ZakazaniPosaoModal({
                 style={styles.inputTekst}
                 value={telefon}
                 onChangeText={setTelefon}
-                keyboardType="phone-pad"
-                placeholder="Unesite broj (npr. 064 123 4567)..."
+                placeholder="npr. 064 123 4567..."
                 placeholderTextColor="#94A3B8"
+                keyboardType="phone-pad"
               />
             </View>
 
@@ -149,7 +167,7 @@ export default function ZakazaniPosaoModal({
                 <Text style={styles.poljeLabel}>Adresa i grad:</Text>
                 {adresaGrad ? (
                   <TouchableOpacity style={styles.btnBrzaAkcija} onPress={otvoriNavigaciju}>
-                    <Text style={styles.btnBrzaAkcijaTekst}>🗺️ Otvori na mapi</Text>
+                    <Text style={styles.btnBrzaAkcijaTekst}>🗺️ Otvori navigaciju</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -157,46 +175,47 @@ export default function ZakazaniPosaoModal({
                 style={styles.inputTekst}
                 value={adresaGrad}
                 onChangeText={setAdresaGrad}
-                placeholder="Unesite ulicu, broj i grad (npr. Knez Mihailova 12, Smederevo)..."
+                placeholder="npr. Smederevo, Knez Mihailova 12..."
                 placeholderTextColor="#94A3B8"
               />
             </View>
 
-            {/* 4. DATUM ZAKAZANOG TERMINA */}
+            {/* 4. DATUM I VREME TERMINA */}
             <View style={styles.poljeGrupa}>
-              <Text style={styles.poljeLabel}>Datum i vreme zakazanog termina (YYYY-MM-DD HH:MM):</Text>
+              <Text style={styles.poljeLabel}>Datum i vreme termina:</Text>
               <TextInput
                 style={styles.inputTekst}
                 value={datumTermina}
                 onChangeText={setDatumTermina}
-                placeholder="npr. 2026-10-20 10:00"
+                placeholder="GGGG-MM-DD SS:MM (npr. 2026-10-25 10:00)..."
                 placeholderTextColor="#94A3B8"
               />
             </View>
 
-            {/* 5. NAPOMENA / OPIS POSLA */}
+            {/* 5. OPIS POSLA / NAPOMENA */}
             <View style={styles.poljeGrupa}>
-              <Text style={styles.poljeLabel}>Napomena (vrsta posla, materijal, dogovor):</Text>
+              <Text style={styles.poljeLabel}>Vrsta posla i napomene majstora:</Text>
               <TextInput
                 style={[styles.inputTekst, styles.inputMultiline]}
                 value={napomena}
                 onChangeText={setNapomena}
-                multiline
-                numberOfLines={4}
-                placeholder="Unesite detalje dogovora, šta tačno treba uraditi..."
+                placeholder="npr. Krečenje stana 60 kvadrata, popravka instalacije, priprema podloge..."
                 placeholderTextColor="#94A3B8"
+                multiline
+                numberOfLines={3}
               />
             </View>
           </View>
         </ScrollView>
 
-        {/* Footer */}
+        {/* Footer sa akcijama */}
         <View style={styles.modalFooter}>
-          {telefon ? (
-            <TouchableOpacity style={styles.btnPoziv} onPress={pozoviKlijenta}>
-              <Text style={styles.btnPozivTekst}>📞 Pozovi</Text>
-            </TouchableOpacity>
-          ) : null}
+          <TouchableOpacity
+            style={styles.btnPotvrdiPorukom}
+            onPress={posaljiPotvrduTermina}
+          >
+            <Text style={styles.btnPotvrdiPorukomTekst}>💬 WhatsApp potvrda</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.btnSacuvaj}
@@ -204,9 +223,9 @@ export default function ZakazaniPosaoModal({
             disabled={cuva}
           >
             {cuva ? (
-              <ActivityIndicator color="#0F172A" size="small" />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.btnSacuvajTekst}>💾 Sačuvaj izmene</Text>
+              <Text style={styles.btnSacuvajTekst}>✓ SAČUVAJ IZMENE</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -222,41 +241,45 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.85)',
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 9999,
-    elevation: 25,
-    padding: Platform.OS === 'web' ? 20 : 8
+    padding: Platform.OS === 'web' ? 20 : 10,
+    zIndex: 9999
   },
   prozorKontejner: {
     width: '100%',
-    maxWidth: 680,
-    maxHeight: '94%',
-    backgroundColor: '#1E293B',
+    maxWidth: 720,
+    maxHeight: '90%',
+    backgroundColor: '#F8FAFC',
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#334155',
-    flexDirection: 'column'
+    borderColor: '#E2E8F0',
+    flexDirection: 'column',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 14,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#334155'
+    borderBottomColor: '#E2E8F0'
   },
   dokumentNadnaslov: {
-    color: '#38BDF8',
-    fontSize: 11,
+    color: '#4F46E5',
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 1
+    letterSpacing: 0.5
   },
   dokumentDatum: {
-    color: '#94A3B8',
+    color: '#64748B',
     fontSize: 12,
     marginTop: 2
   },
@@ -264,29 +287,31 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#334155',
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center'
   },
   btnZatvoriTekst: {
-    color: '#FFFFFF',
-    fontSize: 18,
+    color: '#475569',
+    fontSize: 16,
     fontWeight: 'bold'
   },
   scrollSadrzaj: {
-    padding: Platform.OS === 'web' ? 16 : 8
+    padding: Platform.OS === 'web' ? 16 : 10
   },
   beliList: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 8,
+    borderRadius: 12,
     padding: Platform.OS === 'web' ? 24 : 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.05,
     shadowRadius: 8,
-    elevation: 3
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E2E8F0'
   },
   glavniNaslov: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.5,
@@ -296,28 +321,29 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
   poljeGrupa: {
-    marginBottom: 16
+    marginBottom: 14
   },
   labelRed: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6
+    marginBottom: 4
   },
   poljeLabel: {
     fontSize: 13,
-    fontWeight: '800',
-    color: '#334155',
-    marginBottom: 4
+    fontWeight: '700',
+    color: '#334155'
   },
   btnBrzaAkcija: {
-    paddingVertical: 2,
+    paddingVertical: 3,
     paddingHorizontal: 8,
-    backgroundColor: '#E0F2FE',
-    borderRadius: 4
+    backgroundColor: '#EEF2FF',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#C7D2FE'
   },
   btnBrzaAkcijaTekst: {
-    color: '#0284C7',
+    color: '#4F46E5',
     fontSize: 11,
     fontWeight: 'bold'
   },
@@ -326,48 +352,48 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     borderWidth: 1,
     borderColor: '#CBD5E1',
-    borderRadius: 6,
+    borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#F8FAFC'
+    backgroundColor: '#FFFFFF'
   },
   inputMultiline: {
-    minHeight: 80,
+    minHeight: 70,
     textAlignVertical: 'top',
     lineHeight: 20
   },
   modalFooter: {
     flexDirection: 'row',
     padding: 14,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#334155',
+    borderTopColor: '#E2E8F0',
     gap: 12
   },
-  btnPoziv: {
+  btnPotvrdiPorukom: {
     flex: 1,
     paddingVertical: 12,
-    backgroundColor: '#0284C7',
+    backgroundColor: '#25D366',
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center'
   },
-  btnPozivTekst: {
+  btnPotvrdiPorukomTekst: {
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 13
   },
   btnSacuvaj: {
-    flex: 2,
+    flex: 1.5,
     paddingVertical: 12,
-    backgroundColor: '#F59E0B',
+    backgroundColor: '#10B981',
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center'
   },
   btnSacuvajTekst: {
-    color: '#0F172A',
-    fontWeight: '900',
+    color: '#FFFFFF',
+    fontWeight: '800',
     fontSize: 14
   }
 });

@@ -799,6 +799,11 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
           podsetnici={podsetnici}
           onOtvoriEdit={otvoriModalZaIzmenu}
           onObrisi={(uuid) => obrisiPoUuid(uuid)}
+          onAzuriraj={async (azuriran) => {
+            await StorageService.azurirajPodsetnik(azuriran.uuid_lokalni, azuriran);
+            await ucitajPodatke();
+            SyncService.izvrsiSinhronizaciju().then(() => ucitajPodatke());
+          }}
         />
       )}
 
@@ -1019,6 +1024,22 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
                     </View>
 
                     <View style={styles.posaoAkcijeRed}>
+                      {item.klijent_telefon ? (
+                        <TouchableOpacity
+                          style={[styles.btnMalaAkcijaPosao, { backgroundColor: '#ECFDF5' }]}
+                          onPress={() => Linking.openURL(`tel:${item.klijent_telefon}`)}
+                        >
+                          <Text style={styles.btnAkcijaTekst}>📞</Text>
+                        </TouchableOpacity>
+                      ) : null}
+
+                      <TouchableOpacity
+                        style={[styles.btnMalaAkcijaPosao, { backgroundColor: '#F0FDF4' }]}
+                        onPress={() => posaljiPorukuKlijentu(item)}
+                      >
+                        <Text style={styles.btnAkcijaTekst}>💬</Text>
+                      </TouchableOpacity>
+
                       <TouchableOpacity
                         style={styles.btnMalaAkcijaPosao}
                         onPress={() => PdfService.otvoriIliPodeliPdf(item, korisnik)}
@@ -1269,25 +1290,25 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
                 {aktivniTipSnimanja === 'zakazano' ? (
                   <View style={styles.pregledZakazanoKutija}>
                     <Text style={styles.pregledStavka}>
-                      👤 Klijent: <Text style={{ color: '#fff', fontWeight: 'bold' }}>{parsirano.klijent_ime || 'Nije prepoznato'}</Text>
+                      👤 Klijent: <Text style={{ color: '#0F172A', fontWeight: 'bold' }}>{parsirano.klijent_ime || 'Nije prepoznato'}</Text>
                     </Text>
                     {parsirano.klijent_telefon ? (
                       <Text style={styles.pregledStavka}>
-                        📞 Telefon: <Text style={{ color: '#FDE047', fontWeight: 'bold' }}>{parsirano.klijent_telefon}</Text>
+                        📞 Telefon: <Text style={{ color: '#0369A1', fontWeight: 'bold' }}>{parsirano.klijent_telefon}</Text>
                       </Text>
                     ) : null}
                     {parsirano.lokacija ? (
                       <Text style={styles.pregledStavka}>
-                        📍 Adresa/Grad: <Text style={{ color: '#38BDF8', fontWeight: 'bold' }}>{parsirano.lokacija}</Text>
+                        📍 Adresa/Grad: <Text style={{ color: '#0284C7', fontWeight: 'bold' }}>{parsirano.lokacija}</Text>
                       </Text>
                     ) : null}
                     {parsirano.rok_datum ? (
                       <Text style={styles.pregledStavka}>
-                        ⏰ Termin: <Text style={{ color: '#F43F5E', fontWeight: 'bold' }}>{new Date(parsirano.rok_datum).toLocaleString('sr-RS')}</Text>
+                        ⏰ Termin: <Text style={{ color: '#E11D48', fontWeight: 'bold' }}>{new Date(parsirano.rok_datum).toLocaleString('sr-RS')}</Text>
                       </Text>
                     ) : null}
                     <Text style={styles.pregledStavka}>
-                      📝 Napomena: <Text style={{ color: '#CBD5E1' }}>{parsirano.opis_zadatka}</Text>
+                      📝 Napomena: <Text style={{ color: '#334155' }}>{parsirano.opis_zadatka}</Text>
                     </Text>
                   </View>
                 ) : null}
@@ -1434,31 +1455,36 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#101014' },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
   topBar: {
     paddingTop: 45,
     paddingHorizontal: 16,
     paddingBottom: 12,
-    backgroundColor: '#18181E',
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderColor: '#262633'
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 2
   },
-  logoTekst: { fontSize: 24, fontWeight: '900', color: '#10B981' },
-  korisnikLabel: { fontSize: 12, color: '#A1A1AA', marginTop: 2 },
+  logoTekst: { fontSize: 24, fontWeight: '900', color: '#059669' },
+  korisnikLabel: { fontSize: 12, color: '#64748B', marginTop: 2 },
   topDugmad: { flexDirection: 'row', gap: 8 },
-  btnAdmin: { backgroundColor: '#F59E0B', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-  btnAdminTekst: { color: '#000', fontWeight: '800', fontSize: 12 },
-  btnOdjava: { backgroundColor: '#272730', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-  btnOdjavaTekst: { color: '#E4E4E7', fontSize: 12 },
-  bannerContainer: { backgroundColor: '#1E1E28', padding: 12, borderBottomWidth: 1, borderColor: '#2A2A3A' },
+  btnAdmin: { backgroundColor: '#FEF3C7', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#FDE68A' },
+  btnAdminTekst: { color: '#92400E', fontWeight: '800', fontSize: 12 },
+  btnOdjava: { backgroundColor: '#F1F5F9', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
+  btnOdjavaTekst: { color: '#475569', fontSize: 12, fontWeight: '600' },
+  bannerContainer: { backgroundColor: '#EFF6FF', padding: 12, borderBottomWidth: 1, borderColor: '#DBEAFE' },
   bannerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  bannerTekst: { color: '#FCD34D', fontSize: 13 },
-  btnSync: { backgroundColor: '#2563EB', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
-  btnSyncTekst: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  licencaTekst: { color: '#A1A1AA', fontSize: 11, marginTop: 4 },
+  bannerTekst: { color: '#1E40AF', fontSize: 13 },
+  btnSync: { backgroundColor: '#0284C7', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
+  btnSyncTekst: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  licencaTekst: { color: '#64748B', fontSize: 11, marginTop: 4 },
   posloviBarContainer: {
     marginHorizontal: 16,
     marginTop: 14,
@@ -1466,31 +1492,38 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#181822',
+    backgroundColor: '#FFFFFF',
     padding: 12,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#2D2D3D'
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2
   },
   posloviInfo: {
     flex: 1
   },
   posloviNaslov: {
-    color: '#FFFFFF',
+    color: '#0F172A',
     fontSize: 15,
     fontWeight: '800'
   },
   posloviPodnaslov: {
-    color: '#10B981',
+    color: '#059669',
     fontSize: 12,
     fontWeight: '700',
     marginTop: 2
   },
   taboviKontejner: {
     flexDirection: 'row',
-    backgroundColor: '#272733',
+    backgroundColor: '#F1F5F9',
     borderRadius: 10,
-    padding: 3
+    padding: 3,
+    borderWidth: 1,
+    borderColor: '#E2E8F0'
   },
   tabDugme: {
     paddingHorizontal: 12,
@@ -1498,48 +1531,58 @@ const styles = StyleSheet.create({
     borderRadius: 8
   },
   tabDugmeAktivno: {
-    backgroundColor: '#10B981'
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1
   },
   tabDugmeTekst: {
-    color: '#A1A1AA',
+    color: '#64748B',
     fontSize: 12,
     fontWeight: '700'
   },
   tabDugmeTekstAktivno: {
-    color: '#FFFFFF',
+    color: '#0F172A',
     fontWeight: '900'
   },
   prazno: { alignItems: 'center', marginTop: 40, paddingHorizontal: 20 },
   praznoIkona: { fontSize: 42, marginBottom: 8 },
-  praznoTekst: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
-  praznoPodtekst: { color: '#A1A1AA', fontSize: 14, textAlign: 'center', marginTop: 6, lineHeight: 20 },
+  praznoTekst: { color: '#0F172A', fontSize: 18, fontWeight: '800' },
+  praznoPodtekst: { color: '#64748B', fontSize: 14, textAlign: 'center', marginTop: 6, lineHeight: 20 },
   demoKutija: {
-    backgroundColor: '#181822',
+    backgroundColor: '#FFFFFF',
     padding: 16,
     borderRadius: 14,
     marginTop: 20,
     borderWidth: 1,
-    borderColor: '#2F2F40',
+    borderColor: '#E2E8F0',
     width: '100%'
   },
-  demoKutijaNaslov: { color: '#25D366', fontSize: 14, fontWeight: '800', marginBottom: 6 },
-  demoKutijaTekst: { color: '#D4D4D8', fontSize: 13, lineHeight: 19, marginTop: 4 },
+  demoKutijaNaslov: { color: '#059669', fontSize: 14, fontWeight: '800', marginBottom: 6 },
+  demoKutijaTekst: { color: '#475569', fontSize: 13, lineHeight: 19, marginTop: 4 },
   kartica: {
-    backgroundColor: '#1A1A22',
+    backgroundColor: '#FFFFFF',
     padding: 16,
     borderRadius: 14,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#2D2D3D'
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2
   },
-  karticaZavrseno: { opacity: 0.55 },
+  karticaZavrseno: { opacity: 0.6, backgroundColor: '#F8FAFC' },
   karticaHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  karticaKlijent: { fontSize: 16, fontWeight: '800', color: '#10B981' },
-  karticaZadatak: { fontSize: 14, color: '#F4F4F5', marginTop: 4, lineHeight: 20 },
-  iznosBadge: { backgroundColor: '#065F46', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, alignItems: 'center' },
-  iznosTekst: { color: '#FFFFFF', fontWeight: '900', fontSize: 15 },
-  kaparaTekst: { color: '#FDE047', fontSize: 9, fontWeight: '900' },
-  rokTekst: { color: '#60A5FA', fontSize: 13, marginTop: 10, fontWeight: '600' },
+  karticaKlijent: { fontSize: 16, fontWeight: '800', color: '#059669' },
+  karticaZadatak: { fontSize: 14, color: '#1E293B', marginTop: 4, lineHeight: 20 },
+  iznosBadge: { backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, alignItems: 'center' },
+  iznosTekst: { color: '#059669', fontWeight: '900', fontSize: 15 },
+  kaparaTekst: { color: '#D97706', fontSize: 9, fontWeight: '900' },
+  rokTekst: { color: '#2563EB', fontSize: 13, marginTop: 10, fontWeight: '600' },
   btnPoruka: {
     backgroundColor: '#25D366',
     paddingVertical: 10,
@@ -1548,12 +1591,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
-  btnPorukaTekst: { color: '#000000', fontSize: 13, fontWeight: '800' },
+  btnPorukaTekst: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
   karticaFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
-  btnZavrsi: { backgroundColor: '#272733', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8 },
-  btnZavrsiAktivno: { backgroundColor: '#065F46' },
-  btnZavrsiTekst: { color: '#E4E4E7', fontSize: 12, fontWeight: '600' },
-  syncStatus: { marginLeft: 'auto', fontSize: 11, color: '#71717A' },
+  btnZavrsi: { backgroundColor: '#F1F5F9', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
+  btnZavrsiAktivno: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
+  btnZavrsiTekst: { color: '#334155', fontSize: 12, fontWeight: '600' },
+  syncStatus: { marginLeft: 'auto', fontSize: 11, color: '#94A3B8' },
   floatingButtonContainer: {
     position: 'absolute',
     bottom: 20,
@@ -1565,7 +1608,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
     width: '100%',
     maxWidth: 560,
-    paddingVertical: 18,
+    paddingVertical: 16,
     borderRadius: 16,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1573,43 +1616,43 @@ const styles = StyleSheet.create({
     elevation: 8,
     ...Platform.select({
       web: {
-        boxShadow: '0px 4px 14px rgba(16, 185, 129, 0.4)'
+        boxShadow: '0px 6px 16px rgba(16, 185, 129, 0.35)'
       },
       default: {
         shadowColor: '#10B981',
-        shadowOpacity: 0.4,
+        shadowOpacity: 0.35,
         shadowRadius: 10
       }
     })
   },
   btnGlavnoGlasIkona: { fontSize: 24, marginRight: 10 },
-  btnGlavnoGlasTekst: { color: '#FFFFFF', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end', alignItems: 'center' },
+  btnGlavnoGlasTekst: { color: '#FFFFFF', fontSize: 17, fontWeight: '900', letterSpacing: 0.5 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'flex-end', alignItems: 'center' },
   modalOverlayDesktop: { justifyContent: 'center', padding: 20 },
-  modalSadrzaj: { backgroundColor: '#1C1C24', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '92%', width: '100%' },
+  modalSadrzaj: { backgroundColor: '#FFFFFF', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '92%', width: '100%', shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
   modalSadrzajDesktop: { maxWidth: 560, borderRadius: 20, maxHeight: '85%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  modalNaslov: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  modalZatvori: { color: '#A1A1AA', fontSize: 20, fontWeight: 'bold' },
+  modalNaslov: { color: '#0F172A', fontSize: 16, fontWeight: '700' },
+  modalZatvori: { color: '#64748B', fontSize: 20, fontWeight: 'bold' },
   modalInput: {
-    backgroundColor: '#272733',
-    color: '#fff',
+    backgroundColor: '#F8FAFC',
+    color: '#0F172A',
     borderRadius: 12,
     padding: 14,
     fontSize: 15,
     minHeight: 80,
     textAlignVertical: 'top',
-    borderColor: '#3F3F50',
+    borderColor: '#CBD5E1',
     borderWidth: 1
   },
-  brziPrimeriNaslov: { color: '#71717A', fontSize: 11, marginTop: 12, marginBottom: 6 },
+  brziPrimeriNaslov: { color: '#64748B', fontSize: 11, marginTop: 12, marginBottom: 6, fontWeight: '600' },
   primeriContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chipPrimer: { backgroundColor: '#2E2E3E', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-  chipPrimerTekst: { color: '#93C5FD', fontSize: 11 },
-  pregledKartica: { backgroundColor: '#132F24', padding: 14, borderRadius: 12, marginTop: 16, borderWidth: 1, borderColor: '#10B981' },
-  pregledNaslov: { color: '#6EE7B7', fontSize: 12, fontWeight: '800', marginBottom: 8 },
-  pregledStavka: { color: '#D1D5DB', fontSize: 13, marginBottom: 4 },
-  btnSacuvajPotvrda: { backgroundColor: '#10B981', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 12 },
+  chipPrimer: { backgroundColor: '#F1F5F9', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
+  chipPrimerTekst: { color: '#2563EB', fontSize: 11, fontWeight: '600' },
+  pregledKartica: { backgroundColor: '#F0FDF4', padding: 14, borderRadius: 12, marginTop: 16, borderWidth: 1, borderColor: '#86EFAC' },
+  pregledNaslov: { color: '#166534', fontSize: 12, fontWeight: '800', marginBottom: 8 },
+  pregledStavka: { color: '#334155', fontSize: 13, marginBottom: 4 },
+  btnSacuvajPotvrda: { backgroundColor: '#059669', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 12 },
   btnSacuvajPotvrdaTekst: { color: '#fff', fontSize: 15, fontWeight: '900' },
   korisnikRow: {
     flexDirection: 'row',
@@ -1618,49 +1661,49 @@ const styles = StyleSheet.create({
     marginTop: 4
   },
   btnIkonaEdit: {
-    backgroundColor: '#272733',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#3F3F50'
+    borderColor: '#CBD5E1'
   },
   btnIkonaKanta: {
-    backgroundColor: '#451A1A',
+    backgroundColor: '#FEE2E2',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#7F1D1D'
+    borderColor: '#FCA5A5'
   },
   profilLabel: {
-    color: '#D4D4D8',
+    color: '#334155',
     fontSize: 13,
     fontWeight: '600',
     marginBottom: 6,
     marginTop: 10
   },
   profilInput: {
-    backgroundColor: '#272733',
-    color: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
+    color: '#0F172A',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
-    borderColor: '#3F3F50',
+    borderColor: '#CBD5E1',
     borderWidth: 1
   },
   lozinkaKontejner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#272733',
+    backgroundColor: '#F8FAFC',
     borderRadius: 10,
-    borderColor: '#3F3F50',
+    borderColor: '#CBD5E1',
     borderWidth: 1
   },
   lozinkaInput: {
     flex: 1,
-    color: '#FFFFFF',
+    color: '#0F172A',
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14
@@ -1675,7 +1718,7 @@ const styles = StyleSheet.create({
     fontSize: 16
   },
   btnSacuvajProfil: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#059669',
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
@@ -1687,16 +1730,16 @@ const styles = StyleSheet.create({
     fontWeight: '800'
   },
   mikrofonStatusKutija: {
-    backgroundColor: '#1E1E28',
+    backgroundColor: '#F8FAFC',
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2F2F40',
+    borderColor: '#E2E8F0',
     marginBottom: 12
   },
   mikrofonStatusKutijaAktivno: {
-    backgroundColor: '#351216',
-    borderColor: '#EF4444'
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FCA5A5'
   },
   snimanjeRed: {
     flexDirection: 'row',
@@ -1704,23 +1747,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between'
   },
   snimanjeTekstGlavni: {
-    color: '#EF4444',
+    color: '#DC2626',
     fontSize: 14,
     fontWeight: '900',
     letterSpacing: 0.5
   },
   snimanjeTekstSpreman: {
-    color: '#A1A1AA',
+    color: '#475569',
     fontSize: 13,
     fontWeight: '700'
   },
   snimanjeTekstPod: {
-    color: '#71717A',
+    color: '#64748B',
     fontSize: 11,
     marginTop: 2
   },
   btnZavrsiSnimanje: {
-    backgroundColor: '#EF4444',
+    backgroundColor: '#DC2626',
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 10,
@@ -1732,7 +1775,7 @@ const styles = StyleSheet.create({
     fontWeight: '900'
   },
   btnPokreniSnimanje: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#059669',
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 10,
@@ -1744,41 +1787,41 @@ const styles = StyleSheet.create({
     fontWeight: '800'
   },
   firefoxKutija: {
-    backgroundColor: '#1B1E2E',
+    backgroundColor: '#EFF6FF',
     padding: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#3B82F6',
+    borderColor: '#BFDBFE',
     marginBottom: 12
   },
   firefoxNaslov: {
-    color: '#93C5FD',
+    color: '#1D4ED8',
     fontSize: 12,
     fontWeight: '800',
     marginBottom: 4
   },
   firefoxTekst: {
-    color: '#D1D5DB',
+    color: '#1E293B',
     fontSize: 11,
     lineHeight: 16,
     marginTop: 2
   },
   karticaTelefon: {
-    color: '#FDE047',
+    color: '#0369A1',
     fontSize: 12,
     fontWeight: '700',
     marginTop: 2
   },
   karticaSpecifikacija: {
-    backgroundColor: '#14141B',
+    backgroundColor: '#F8FAFC',
     padding: 10,
     borderRadius: 8,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: '#2D2D3D'
+    borderColor: '#E2E8F0'
   },
   karticaSpecifikacijaNaslov: {
-    color: '#93C5FD',
+    color: '#1D4ED8',
     fontSize: 12,
     fontWeight: '800',
     marginBottom: 4
@@ -1789,25 +1832,25 @@ const styles = StyleSheet.create({
     paddingVertical: 2
   },
   karticaSpecifikacijaStavka: {
-    color: '#E4E4E7',
+    color: '#334155',
     fontSize: 12,
     flex: 1
   },
   karticaSpecifikacijaCena: {
-    color: '#34D399',
+    color: '#059669',
     fontSize: 12,
     fontWeight: '800'
   },
   pregledSpecifikacija: {
-    backgroundColor: '#0F291E',
+    backgroundColor: '#F0FDF4',
     padding: 10,
     borderRadius: 8,
     marginVertical: 6,
     borderWidth: 1,
-    borderColor: '#059669'
+    borderColor: '#86EFAC'
   },
   pregledSpecifikacijaNaslov: {
-    color: '#6EE7B7',
+    color: '#166534',
     fontSize: 12,
     fontWeight: '800',
     marginBottom: 6
@@ -1818,12 +1861,12 @@ const styles = StyleSheet.create({
     paddingVertical: 2
   },
   pregledSpecifikacijaOpis: {
-    color: '#E5E7EB',
+    color: '#1E293B',
     fontSize: 12,
     flex: 1
   },
   pregledSpecifikacijaCena: {
-    color: '#A7F3D0',
+    color: '#166534',
     fontSize: 12,
     fontWeight: '700'
   },
@@ -1831,39 +1874,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     borderTopWidth: 1,
-    borderColor: '#059669',
+    borderColor: '#86EFAC',
     paddingTop: 6,
     marginTop: 6
   },
   pregledSpecifikacijaZbirLabel: {
-    color: '#FFFFFF',
+    color: '#0F172A',
     fontSize: 13,
     fontWeight: '900'
   },
   pregledSpecifikacijaZbirVrednost: {
-    color: '#34D399',
+    color: '#059669',
     fontSize: 15,
     fontWeight: '900'
   },
   valutaBtn: {
-    backgroundColor: '#272733',
+    backgroundColor: '#F8FAFC',
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#3F3F50'
+    borderColor: '#CBD5E1'
   },
   valutaBtnAktivno: {
-    backgroundColor: '#065F46',
-    borderColor: '#10B981'
+    backgroundColor: '#ECFDF5',
+    borderColor: '#059669'
   },
   valutaBtnTekst: {
-    color: '#A1A1AA',
+    color: '#64748B',
     fontSize: 13,
     fontWeight: '700'
   },
   valutaBtnTekstAktivno: {
-    color: '#FFFFFF',
+    color: '#059669',
     fontWeight: '900'
   },
   kaparaToggleRow: {
@@ -1873,21 +1916,21 @@ const styles = StyleSheet.create({
     marginTop: 10
   },
   kaparaToggleTekst: {
-    color: '#D4D4D8',
+    color: '#334155',
     fontSize: 13,
     fontWeight: '600'
   },
   btnAkcijaPosao: {
-    backgroundColor: '#272733',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: '#3F3F50'
+    borderColor: '#CBD5E1'
   },
   btnKantaPosao: {
-    backgroundColor: '#451A1A',
-    borderColor: '#7F1D1D'
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5'
   },
   poljeSaMikrofonomRed: {
     flexDirection: 'row',
@@ -1899,34 +1942,34 @@ const styles = StyleSheet.create({
   },
   inputSnimaAktivno: {
     borderColor: '#EF4444',
-    backgroundColor: '#2A1717'
+    backgroundColor: '#FEF2F2'
   },
   btnMikrofonPolje: {
-    backgroundColor: '#272733',
+    backgroundColor: '#F8FAFC',
     paddingHorizontal: 12,
     height: 42,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#3F3F50',
+    borderColor: '#CBD5E1',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5
   },
   btnMikrofonPoljeAktivno: {
-    backgroundColor: '#7F1D1D',
+    backgroundColor: '#FEE2E2',
     borderColor: '#EF4444'
   },
   btnMikrofonPoljeIkona: {
     fontSize: 15
   },
   btnMikrofonPoljeTekst: {
-    color: '#D4D4D8',
+    color: '#334155',
     fontSize: 11,
     fontWeight: '700'
   },
   btnMikrofonPoljeTekstAktivno: {
-    color: '#FCA5A5'
+    color: '#DC2626'
   },
   valutaIzborRed: {
     flexDirection: 'row',
@@ -1935,35 +1978,35 @@ const styles = StyleSheet.create({
   },
   valutaVelikoDugme: {
     flex: 1,
-    backgroundColor: '#272733',
+    backgroundColor: '#F8FAFC',
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 10,
     borderWidth: 1.5,
-    borderColor: '#3F3F50',
+    borderColor: '#CBD5E1',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8
   },
   valutaVelikoDugmeAktivno: {
-    backgroundColor: '#064E3B',
-    borderColor: '#10B981'
+    backgroundColor: '#ECFDF5',
+    borderColor: '#059669'
   },
   valutaZastavica: {
     fontSize: 20
   },
   valutaVelikiNaslov: {
-    color: '#A1A1AA',
+    color: '#64748B',
     fontSize: 13,
     fontWeight: '700'
   },
   valutaVelikiNaslovAktivno: {
-    color: '#FFFFFF',
+    color: '#059669',
     fontWeight: '900'
   },
   valutaCekirano: {
-    color: '#34D399',
+    color: '#059669',
     fontSize: 11,
     fontWeight: '900',
     marginLeft: 2
@@ -1975,17 +2018,17 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   btnModalOdustani: {
-    backgroundColor: '#272733',
+    backgroundColor: '#F1F5F9',
     paddingVertical: 14,
     paddingHorizontal: 18,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#3F3F50',
+    borderColor: '#CBD5E1',
     alignItems: 'center',
     justifyContent: 'center'
   },
   btnModalOdustaniTekst: {
-    color: '#A1A1AA',
+    color: '#475569',
     fontSize: 14,
     fontWeight: '700'
   },
@@ -2001,27 +2044,27 @@ const styles = StyleSheet.create({
   },
   glavniMeniTab: {
     flex: 1,
-    backgroundColor: '#1E1E28',
+    backgroundColor: '#FFFFFF',
     paddingVertical: 12,
     paddingHorizontal: 8,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#2F2F40',
+    borderColor: '#E2E8F0',
     position: 'relative'
   },
   glavniMeniTabAktivno: {
-    backgroundColor: '#0F2E22',
-    borderColor: '#10B981'
+    backgroundColor: '#ECFDF5',
+    borderColor: '#059669'
   },
   glavniMeniTekst: {
-    color: '#A1A1AA',
+    color: '#64748B',
     fontSize: 13,
     fontWeight: '700'
   },
   glavniMeniTekstAktivno: {
-    color: '#FFFFFF',
+    color: '#059669',
     fontWeight: '800'
   },
   badgeBroj: {
@@ -2042,9 +2085,9 @@ const styles = StyleSheet.create({
     fontWeight: '900'
   },
   podsetnikDanasKutija: {
-    backgroundColor: '#351216',
+    backgroundColor: '#FEF2F2',
     borderWidth: 1,
-    borderColor: '#EF4444',
+    borderColor: '#FCA5A5',
     borderRadius: 12,
     padding: 12,
     marginTop: 8,
@@ -2057,12 +2100,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center'
   },
   podsetnikDanasNaslov: {
-    color: '#FCA5A5',
+    color: '#991B1B',
     fontSize: 13,
     fontWeight: '800'
   },
   podsetnikDanasPod: {
-    color: '#FECACA',
+    color: '#B91C1C',
     fontSize: 11,
     marginTop: 2
   },
@@ -2088,11 +2131,11 @@ const styles = StyleSheet.create({
   pretragaInputRed: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E1E28',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#2F2F40'
+    borderColor: '#E2E8F0'
   },
   pretragaIkona: {
     fontSize: 14,
@@ -2100,12 +2143,12 @@ const styles = StyleSheet.create({
   },
   pretragaInput: {
     flex: 1,
-    color: '#FFFFFF',
+    color: '#0F172A',
     paddingVertical: 10,
     fontSize: 13
   },
   pretragaObrisi: {
-    color: '#71717A',
+    color: '#64748B',
     fontSize: 16,
     padding: 4
   },
@@ -2115,30 +2158,30 @@ const styles = StyleSheet.create({
     paddingVertical: 8
   },
   chipFilter: {
-    backgroundColor: '#272736',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#37374A'
+    borderColor: '#E2E8F0'
   },
   chipFilterAktivno: {
-    backgroundColor: '#065F46',
-    borderColor: '#10B981'
+    backgroundColor: '#ECFDF5',
+    borderColor: '#059669'
   },
   chipFilterTekst: {
-    color: '#A1A1AA',
+    color: '#64748B',
     fontSize: 12,
     fontWeight: '600'
   },
   chipFilterTekstAktivno: {
-    color: '#FFFFFF',
+    color: '#059669',
     fontWeight: '800'
   },
   chipLokacija: {
-    backgroundColor: '#2A271C',
+    backgroundColor: '#FEF9C3',
     borderWidth: 1,
-    borderColor: '#854D0E',
+    borderColor: '#FDE047',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
@@ -2146,7 +2189,7 @@ const styles = StyleSheet.create({
     marginVertical: 4
   },
   chipLokacijaTekst: {
-    color: '#FDE047',
+    color: '#854D0E',
     fontSize: 12,
     fontWeight: '700'
   },
@@ -2156,24 +2199,24 @@ const styles = StyleSheet.create({
     marginTop: 12
   },
   btnPdfPredracun: {
-    backgroundColor: '#1E3A8A',
+    backgroundColor: '#EFF6FF',
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#3B82F6'
+    borderColor: '#BFDBFE'
   },
   btnPdfPredracunTekst: {
-    color: '#FFFFFF',
+    color: '#1D4ED8',
     fontSize: 12,
     fontWeight: '800'
   },
   snimaPoljeIndicator: {
-    backgroundColor: '#2A1717',
+    backgroundColor: '#FEF2F2',
     borderWidth: 1,
-    borderColor: '#EF4444',
+    borderColor: '#FCA5A5',
     borderRadius: 10,
     padding: 10,
     marginBottom: 10,
@@ -2182,7 +2225,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between'
   },
   snimaPoljeIndicatorTekst: {
-    color: '#FCA5A5',
+    color: '#DC2626',
     fontSize: 12,
     fontWeight: '700'
   },
@@ -2190,12 +2233,17 @@ const styles = StyleSheet.create({
   posaoKarticaRed: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#334155'
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2
   },
   posaoKarticaZavrseno: {
     opacity: 0.55
@@ -2204,7 +2252,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 10,
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12
@@ -2214,7 +2262,7 @@ const styles = StyleSheet.create({
   },
   posaoRedniBroj: {
     fontSize: 9,
-    color: '#F59E0B',
+    color: '#D97706',
     fontWeight: '900'
   },
   posaoSredina: {
@@ -2230,7 +2278,7 @@ const styles = StyleSheet.create({
   posaoNaslov: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#F8FAFC',
+    color: '#0F172A',
     flex: 1,
     marginRight: 6
   },
@@ -2240,18 +2288,18 @@ const styles = StyleSheet.create({
   },
   posaoKlijentLokacija: {
     fontSize: 12,
-    color: '#38BDF8',
+    color: '#0284C7',
     fontWeight: '600',
     marginBottom: 3
   },
   posaoSazetakStavki: {
     fontSize: 12,
-    color: '#94A3B8',
+    color: '#475569',
     marginBottom: 3
   },
   posaoRokTekst: {
     fontSize: 11,
-    color: '#F59E0B',
+    color: '#D97706',
     fontWeight: '600'
   },
   posaoDesnoKontejner: {
@@ -2259,12 +2307,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between'
   },
   posaoIznosBedz: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#ECFDF5',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#A7F3D0',
     marginBottom: 6,
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -2273,12 +2321,12 @@ const styles = StyleSheet.create({
   posaoIznosCifra: {
     fontSize: 13,
     fontWeight: '900',
-    color: '#10B981'
+    color: '#059669'
   },
   posaoIznosValuta: {
     fontSize: 10,
     fontWeight: 'bold',
-    color: '#64748B'
+    color: '#047857'
   },
   posaoAkcijeRed: {
     flexDirection: 'row',
@@ -2288,75 +2336,78 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 6,
-    backgroundColor: '#334155',
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0'
   },
   btnMalaAkcijaBrisi: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)'
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5'
   },
   btnAkcijaTekst: {
     fontSize: 14
   },
   // Stilovi za pregled popunjenih tabela u snimanju
   pregledTabelaNabavka: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
     borderRadius: 8,
     padding: 10,
     marginVertical: 8,
     borderWidth: 1,
-    borderColor: '#334155'
+    borderColor: '#E2E8F0'
   },
   pregledTabelaNabavkaHeader: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#334155',
+    borderBottomColor: '#E2E8F0',
     paddingBottom: 6,
     marginBottom: 4
   },
   pregledColHeader: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#64748B'
+    color: '#475569'
   },
   pregledTabelaNabavkaRed: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 4,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(51, 65, 85, 0.4)'
+    borderBottomColor: '#F1F5F9'
   },
   pregledCellTekst: {
     fontSize: 12,
-    color: '#F8FAFC'
+    color: '#0F172A'
   },
   pregledTabelaPosao: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
     borderRadius: 8,
     padding: 10,
     marginVertical: 8,
     borderWidth: 1,
-    borderColor: '#334155'
+    borderColor: '#E2E8F0'
   },
   pregledZbirKutija: {
     marginTop: 8,
     paddingTop: 6,
     borderTopWidth: 1,
-    borderTopColor: '#334155',
+    borderTopColor: '#E2E8F0',
     alignItems: 'flex-end'
   },
   pregledZbirTekst: {
     fontSize: 13,
     fontWeight: 'bold',
-    color: '#F8FAFC'
+    color: '#0F172A'
   },
   pregledZakazanoKutija: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
     borderRadius: 8,
     padding: 10,
     marginVertical: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#E2E8F0',
     gap: 4
   }
 });

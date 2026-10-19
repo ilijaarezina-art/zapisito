@@ -20,6 +20,21 @@ interface NabavkaModalProps {
   onSacuvaj: (azuriran: LokalniPodsetnik) => Promise<void>;
 }
 
+const CESTE_NAMIRNICE = [
+  { opis: 'Hleb', kolicina: '1 kom' },
+  { opis: 'Mleko', kolicina: '1 l' },
+  { opis: 'Jaja', kolicina: '10 kom' },
+  { opis: 'Kafa', kolicina: '200 gr' },
+  { opis: 'Šećer', kolicina: '1 kg' },
+  { opis: 'Ulje', kolicina: '1 l' },
+  { opis: 'Jabuke', kolicina: '2 kg' },
+  { opis: 'Banane', kolicina: '1 kg' },
+  { opis: 'Krompir', kolicina: '3 kg' },
+  { opis: 'Sir', kolicina: '500 gr' },
+  { opis: 'Meso', kolicina: '1 kg' },
+  { opis: 'Kisela voda', kolicina: '1 paket' }
+];
+
 export default function NabavkaModal({
   vidljiv,
   nabavka,
@@ -29,7 +44,9 @@ export default function NabavkaModal({
   if (!vidljiv || !nabavka) return null;
 
   const [naslov, setNaslov] = useState(
-    nabavka.naslov && !nabavka.naslov.includes('Građevinsk') && !nabavka.naslov.includes('Specifikacija')
+    nabavka.naslov &&
+      !nabavka.naslov.includes('Građevinsk') &&
+      !nabavka.naslov.includes('Specifikacija')
       ? nabavka.naslov
       : 'Nabavka'
   );
@@ -52,6 +69,7 @@ export default function NabavkaModal({
     ];
   });
 
+  const [novaNamirnica, setNovaNamirnica] = useState('');
   const [cuva, setCuva] = useState(false);
 
   const prebaciKupljeno = (index: number) => {
@@ -87,6 +105,57 @@ export default function NabavkaModal({
     setStavke([...stavke, nova]);
   };
 
+  const dodajBrzuNamirnicu = (artikal: { opis: string; kolicina: string }) => {
+    const nova: StavkaSpecifikacije = {
+      br: stavke.length + 1,
+      opis: artikal.opis,
+      kolicina: artikal.kolicina,
+      iznos: 0,
+      valuta: 'RSD',
+      kupljeno: false
+    };
+    setStavke([...stavke, nova]);
+  };
+
+  const dodajIzInputa = () => {
+    if (!novaNamirnica.trim()) return;
+    const nova: StavkaSpecifikacije = {
+      br: stavke.length + 1,
+      opis: novaNamirnica.trim(),
+      kolicina: '1 kom',
+      iznos: 0,
+      valuta: 'RSD',
+      kupljeno: false
+    };
+    setStavke([...stavke, nova]);
+    setNovaNamirnica('');
+  };
+
+  const ocistiKupljene = () => {
+    const kupljeneBr = stavke.filter(s => s.kupljeno).length;
+    if (kupljeneBr === 0) {
+      Alert.alert('Info', 'Nema označenih kupljenih stavki za čišćenje.');
+      return;
+    }
+    Alert.alert(
+      'Ukloni kupljene',
+      `Da li želite da uklonite ${kupljeneBr} kupljenih stavki sa spiska?`,
+      [
+        { text: 'Odustani', style: 'cancel' },
+        {
+          text: 'Ukloni',
+          style: 'destructive',
+          onPress: () => {
+            const preostale = stavke
+              .filter(s => !s.kupljeno)
+              .map((s, idx) => ({ ...s, br: idx + 1 }));
+            setStavke(preostale);
+          }
+        }
+      ]
+    );
+  };
+
   const potvrdiISacuvaj = async () => {
     setCuva(true);
     try {
@@ -113,7 +182,7 @@ export default function NabavkaModal({
     tekst += `📅 ${new Date().toLocaleDateString('sr-RS')}\n`;
     tekst += `--------------------------------\n`;
 
-    stavke.forEach((s) => {
+    stavke.forEach(s => {
       const status = s.kupljeno ? '✅' : '⬜';
       const cenaStr = s.iznos && s.iznos > 0 ? ` (~${s.iznos} RSD)` : '';
       tekst += `${status} *${s.opis}* - ${s.kolicina}${cenaStr}\n`;
@@ -134,12 +203,12 @@ export default function NabavkaModal({
   return (
     <View style={styles.modalOverlay}>
       <View style={styles.prozorKontejner}>
-        {/* Zaglavlje */}
+        {/* Zaglavlje - Moderni svetli stil */}
         <View style={styles.modalHeader}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.dokumentNadnaslov}>DOKUMENT: LISTA ZA NABAVKU</Text>
+            <Text style={styles.dokumentNadnaslov}>🛒 LISTA ZA NABAVKU / KUPOVINU</Text>
             <Text style={styles.dokumentDatum}>
-              Kreirano: {new Date(nabavka.kreirano_na_uredjaju).toLocaleDateString('sr-RS')} ({kupljenoUkupno}/{stavke.length} kupljeno)
+              Kreirano: {new Date(nabavka.kreirano_na_uredjaju).toLocaleDateString('sr-RS')} • {kupljenoUkupno}/{stavke.length} kupljeno
             </Text>
           </View>
           <TouchableOpacity style={styles.btnZatvori} onPress={onZatvori}>
@@ -148,7 +217,7 @@ export default function NabavkaModal({
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollSadrzaj}>
-          {/* Beli list papira - Identican tabeli sa Slike 2 */}
+          {/* Beli list papira sa tabelom */}
           <View style={styles.beliList}>
             {/* Naziv liste */}
             <TextInput
@@ -159,13 +228,42 @@ export default function NabavkaModal({
               placeholderTextColor="#94A3B8"
             />
 
+            {/* Brzi unos namirnice */}
+            <View style={styles.brziUnosRed}>
+              <TextInput
+                style={styles.brziUnosInput}
+                placeholder="Dodaj novu stavku (npr. Maslinovo ulje 1l)..."
+                placeholderTextColor="#94A3B8"
+                value={novaNamirnica}
+                onChangeText={setNovaNamirnica}
+                onSubmitEditing={dodajIzInputa}
+              />
+              <TouchableOpacity style={styles.btnBrzoDodaj} onPress={dodajIzInputa}>
+                <Text style={styles.btnBrzoDodajTekst}>+ Dodaj</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Čipovi za česte namirnice (Bring! stil) */}
+            <Text style={styles.cesteLabel}>⚡ Brzi izbor namirnica jednim klikom:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.cesteScroll}>
+              {CESTE_NAMIRNICE.map((item, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.cipNamirnica}
+                  onPress={() => dodajBrzuNamirnicu(item)}
+                >
+                  <Text style={styles.cipNamirnicaTekst}>+ {item.opis}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
             {/* TABELA: ✓ | Namirnica | Količina | Cena (procena) | 🗑️ */}
             <View style={styles.tabelaHeader}>
-              <Text style={[styles.headerCol, { width: 44, textAlign: 'center' }]}>✓</Text>
+              <Text style={[styles.headerCol, { width: 38, textAlign: 'center' }]}>✓</Text>
               <Text style={[styles.headerCol, { flex: 2 }]}>Namirnica</Text>
-              <Text style={[styles.headerCol, { flex: 1.2 }]}>Količina</Text>
-              <Text style={[styles.headerCol, { flex: 1.3 }]}>Cena (procena)</Text>
-              <Text style={[styles.headerCol, { width: 40, textAlign: 'center' }]}>Briši</Text>
+              <Text style={[styles.headerCol, { flex: 1.1 }]}>Količina</Text>
+              <Text style={[styles.headerCol, { flex: 1.1 }]}>Cena (okv.)</Text>
+              <Text style={[styles.headerCol, { width: 36, textAlign: 'center' }]}>Briši</Text>
             </View>
 
             {stavke.map((st, idx) => (
@@ -195,20 +293,20 @@ export default function NabavkaModal({
                     st.kupljeno && styles.tekstPrecrtan
                   ]}
                   value={st.opis}
-                  onChangeText={(val) => izmeniStavku(idx, 'opis', val)}
+                  onChangeText={val => izmeniStavku(idx, 'opis', val)}
                   placeholder="Namirnica / Artikal..."
                   placeholderTextColor="#94A3B8"
                 />
 
-                {/* Količina (npr 2 kg, 1 kom, 200 gr...) */}
+                {/* Količina */}
                 <TextInput
                   style={[
                     styles.inputPolje,
-                    { flex: 1.2 },
+                    { flex: 1.1 },
                     st.kupljeno && styles.tekstPrecrtan
                   ]}
                   value={String(st.kolicina || '')}
-                  onChangeText={(val) => izmeniStavku(idx, 'kolicina', val)}
+                  onChangeText={val => izmeniStavku(idx, 'kolicina', val)}
                   placeholder="2 kg, 1 kom..."
                   placeholderTextColor="#94A3B8"
                 />
@@ -217,17 +315,17 @@ export default function NabavkaModal({
                 <TextInput
                   style={[
                     styles.inputPolje,
-                    { flex: 1.3 },
+                    { flex: 1.1 },
                     st.kupljeno && styles.tekstPrecrtan
                   ]}
                   value={st.iznos && st.iznos > 0 ? String(st.iznos) : ''}
                   keyboardType="numeric"
-                  onChangeText={(val) => izmeniStavku(idx, 'iznos', val)}
+                  onChangeText={val => izmeniStavku(idx, 'iznos', val)}
                   placeholder="RSD..."
                   placeholderTextColor="#94A3B8"
                 />
 
-                {/* KORPA ZA BRISANJE STAVKE (Obavezno po zahtevu korisnika) */}
+                {/* KORPA ZA BRISANJE STAVKE */}
                 <TouchableOpacity
                   style={styles.btnBrisi}
                   onPress={() => obrisiStavku(idx)}
@@ -237,14 +335,22 @@ export default function NabavkaModal({
               </View>
             ))}
 
-            {/* Dugme za dodavanje novog reda */}
-            <TouchableOpacity style={styles.btnDodajRed} onPress={dodajStavku}>
-              <Text style={styles.btnDodajRedTekst}>+ Dodaj novu stavku na spisak</Text>
-            </TouchableOpacity>
+            {/* Dugmad ispod tabele: Dodaj novi red + Očisti kupljene */}
+            <View style={styles.akcijeIspodTabele}>
+              <TouchableOpacity style={styles.btnDodajRed} onPress={dodajStavku}>
+                <Text style={styles.btnDodajRedTekst}>+ Dodaj prazan red</Text>
+              </TouchableOpacity>
+
+              {kupljenoUkupno > 0 && (
+                <TouchableOpacity style={styles.btnOcistiKupljene} onPress={ocistiKupljene}>
+                  <Text style={styles.btnOcistiKupljeneTekst}>🧹 Očisti kupljene ({kupljenoUkupno})</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </ScrollView>
 
-        {/* Footer sa akcijama */}
+        {/* Footer sa akcijama - Moderan svetao stil */}
         <View style={styles.modalFooter}>
           <TouchableOpacity
             style={styles.btnPodeliWhatsApp}
@@ -259,9 +365,9 @@ export default function NabavkaModal({
             disabled={cuva}
           >
             {cuva ? (
-              <ActivityIndicator color="#0F172A" size="small" />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.btnSacuvajTekst}>💾 Sačuvaj izmene</Text>
+              <Text style={styles.btnSacuvajTekst}>✓ SAČUVAJ IZMENE</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -277,41 +383,45 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.85)',
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 9999,
-    elevation: 25,
-    padding: Platform.OS === 'web' ? 20 : 8
+    padding: Platform.OS === 'web' ? 20 : 10,
+    zIndex: 9999
   },
   prozorKontejner: {
     width: '100%',
-    maxWidth: 720,
-    maxHeight: '94%',
-    backgroundColor: '#1E293B',
+    maxWidth: 780,
+    maxHeight: '92%',
+    backgroundColor: '#F8FAFC',
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#334155',
-    flexDirection: 'column'
+    borderColor: '#E2E8F0',
+    flexDirection: 'column',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 14,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#334155'
+    borderBottomColor: '#E2E8F0'
   },
   dokumentNadnaslov: {
-    color: '#10B981',
-    fontSize: 11,
+    color: '#059669',
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 1
+    letterSpacing: 0.5
   },
   dokumentDatum: {
-    color: '#94A3B8',
+    color: '#64748B',
     fontSize: 12,
     marginTop: 2
   },
@@ -319,26 +429,28 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#334155',
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center'
   },
   btnZatvoriTekst: {
-    color: '#FFFFFF',
-    fontSize: 18,
+    color: '#475569',
+    fontSize: 16,
     fontWeight: 'bold'
   },
   scrollSadrzaj: {
-    padding: Platform.OS === 'web' ? 16 : 8
+    padding: Platform.OS === 'web' ? 16 : 10
   },
   beliList: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 8,
+    borderRadius: 12,
     padding: Platform.OS === 'web' ? 24 : 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.05,
     shadowRadius: 8,
-    elevation: 3
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E2E8F0'
   },
   naslovListeInput: {
     fontSize: 18,
@@ -347,7 +459,60 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: '#E2E8F0',
     paddingVertical: 8,
-    marginBottom: 16
+    marginBottom: 14
+  },
+  brziUnosRed: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12
+  },
+  brziUnosInput: {
+    flex: 1,
+    height: 40,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: '#0F172A'
+  },
+  btnBrzoDodaj: {
+    height: 40,
+    paddingHorizontal: 14,
+    backgroundColor: '#0284C7',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  btnBrzoDodajTekst: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13
+  },
+  cesteLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+    marginBottom: 6
+  },
+  cesteScroll: {
+    marginBottom: 14
+  },
+  cipNamirnica: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+    marginRight: 6
+  },
+  cipNamirnicaTekst: {
+    fontSize: 12,
+    color: '#334155',
+    fontWeight: '600'
   },
   tabelaHeader: {
     flexDirection: 'row',
@@ -358,9 +523,9 @@ const styles = StyleSheet.create({
     marginBottom: 4
   },
   headerCol: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
-    color: '#334155',
+    color: '#475569',
     paddingHorizontal: 4
   },
   tabelaRed: {
@@ -368,7 +533,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
-    paddingVertical: 6
+    paddingVertical: 5
   },
   tabelaRedParan: {
     backgroundColor: '#F8FAFC'
@@ -377,7 +542,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4'
   },
   checkboxTouch: {
-    width: 44,
+    width: 38,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 4
@@ -385,9 +550,10 @@ const styles = StyleSheet.create({
   checkboxKocka: {
     width: 20,
     height: 20,
-    borderWidth: 2,
-    borderColor: '#64748B',
-    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#94A3B8',
+    borderRadius: 5,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center'
   },
@@ -397,17 +563,17 @@ const styles = StyleSheet.create({
   },
   checkboxKvacica: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '900'
   },
   inputPolje: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#0F172A',
     paddingVertical: 5,
     paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 4,
+    borderRadius: 6,
     marginHorizontal: 3,
     backgroundColor: '#FFFFFF'
   },
@@ -416,35 +582,53 @@ const styles = StyleSheet.create({
     color: '#94A3B8'
   },
   btnBrisi: {
-    width: 40,
+    width: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 6
+    padding: 4
   },
   btnBrisiTekst: {
-    fontSize: 16
+    fontSize: 15
+  },
+  akcijeIspodTabele: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 14,
+    gap: 10
   },
   btnDodajRed: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     backgroundColor: '#F1F5F9',
     borderRadius: 6,
-    alignSelf: 'flex-start',
-    marginTop: 16,
     borderWidth: 1,
     borderColor: '#CBD5E1'
   },
   btnDodajRedTekst: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
-    color: '#10B981'
+    color: '#0284C7'
+  },
+  btnOcistiKupljene: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FEE2E2'
+  },
+  btnOcistiKupljeneTekst: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#DC2626'
   },
   modalFooter: {
     flexDirection: 'row',
     padding: 14,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#334155',
+    borderTopColor: '#E2E8F0',
     gap: 12
   },
   btnPodeliWhatsApp: {
@@ -461,16 +645,16 @@ const styles = StyleSheet.create({
     fontSize: 13
   },
   btnSacuvaj: {
-    flex: 1.5,
+    flex: 1.4,
     paddingVertical: 12,
-    backgroundColor: '#F59E0B',
+    backgroundColor: '#10B981',
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center'
   },
   btnSacuvajTekst: {
-    color: '#0F172A',
-    fontWeight: '900',
+    color: '#FFFFFF',
+    fontWeight: '800',
     fontSize: 14
   }
 });

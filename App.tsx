@@ -37,7 +37,7 @@ export default function App() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor="#101014" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       {!korisnik ? (
         <AuthScreen onUspesanLogin={setKorisnik} />
       ) : prikaziAdmin ? (
@@ -54,6 +54,6 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#101014' },
-  loadingContainer: { flex: 1, backgroundColor: '#101014', justifyContent: 'center', alignItems: 'center' }
+  root: { flex: 1, backgroundColor: '#F8FAFC' },
+  loadingContainer: { flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' }
 });

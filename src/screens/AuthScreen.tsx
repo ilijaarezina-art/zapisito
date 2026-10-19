@@ -274,46 +274,53 @@ export default function AuthScreen({ onUspesanLogin }: AuthScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#121212' },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
   scroll: { padding: 24, justifyContent: 'center', minHeight: '100%' },
   headerBox: { alignItems: 'center', marginBottom: 24, maxWidth: 440, width: '100%', alignSelf: 'center' },
-  logo: { fontSize: 36, fontWeight: '900', color: '#10B981', letterSpacing: 1 },
-  podnaslov: { fontSize: 15, color: '#A1A1AA', marginTop: 6, textAlign: 'center' },
+  logo: { fontSize: 36, fontWeight: '900', color: '#059669', letterSpacing: 1 },
+  podnaslov: { fontSize: 15, color: '#475569', marginTop: 6, textAlign: 'center' },
   badgeOffline: {
-    backgroundColor: '#064E3B',
-    color: '#34D399',
+    backgroundColor: '#ECFDF5',
+    color: '#059669',
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
     fontSize: 12,
     fontWeight: '700',
     marginTop: 10
   },
   card: {
-    backgroundColor: '#1E1E24',
-    padding: 22,
-    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    padding: 24,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#2A2A35',
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
     maxWidth: 440,
     width: '100%',
     alignSelf: 'center'
   },
-  cardTitle: { fontSize: 20, fontWeight: '700', color: '#FFFFFF', marginBottom: 16 },
+  cardTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A', marginBottom: 16 },
   statusBanner: {
     padding: 12,
     borderRadius: 8,
     marginBottom: 16
   },
   statusUspeh: {
-    backgroundColor: '#052e16',
+    backgroundColor: '#ECFDF5',
     borderWidth: 1,
-    borderColor: '#10b981'
+    borderColor: '#10B981'
   },
   statusGreska: {
-    backgroundColor: '#450a0a',
+    backgroundColor: '#FEF2F2',
     borderWidth: 1,
-    borderColor: '#ef4444'
+    borderColor: '#EF4444'
   },
   statusTekst: {
     fontSize: 14,
@@ -321,35 +328,35 @@ const styles = StyleSheet.create({
     textAlign: 'center'
   },
   statusTekstUspeh: {
-    color: '#34d399'
+    color: '#065F46'
   },
   statusTekstGreska: {
-    color: '#f87171'
+    color: '#991B1B'
   },
-  label: { fontSize: 13, color: '#D4D4D8', marginBottom: 6, fontWeight: '600' },
+  label: { fontSize: 13, color: '#334155', marginBottom: 6, fontWeight: '600' },
   input: {
-    backgroundColor: '#272730',
-    color: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
+    color: '#0F172A',
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 10,
     fontSize: 15,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#3F3F4E'
+    borderColor: '#CBD5E1'
   },
   lozinkaKontejner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#272730',
+    backgroundColor: '#F8FAFC',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#3F3F4E',
+    borderColor: '#CBD5E1',
     marginBottom: 14
   },
   lozinkaInput: {
     flex: 1,
-    color: '#FFFFFF',
+    color: '#0F172A',
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15
@@ -364,13 +371,13 @@ const styles = StyleSheet.create({
     fontSize: 18
   },
   btnPrimarno: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#059669',
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
     marginTop: 8
   },
-  btnPrimarnoTekst: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  btnPrimarnoTekst: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   btnPrebaci: { marginTop: 16, alignItems: 'center' },
-  btnPrebaciTekst: { color: '#60A5FA', fontSize: 13 }
+  btnPrebaciTekst: { color: '#2563EB', fontSize: 13, fontWeight: '600' }
 });

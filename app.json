@@ -2,25 +2,25 @@
   "expo": {
     "name": "ZapišiTo",
     "slug": "zapisito",
-    "version": "1.0.12",
+    "version": "1.0.13",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#101014"
+      "backgroundColor": "#FFFFFF"
     },
     "android": {
       "package": "com.zapisito.app",
-      "versionCode": 7,
+      "versionCode": 8,
       "permissions": [
         "RECORD_AUDIO",
         "INTERNET"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#101014"
+        "backgroundColor": "#FFFFFF"
       }
     },
     "web": {
