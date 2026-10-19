@@ -22,6 +22,7 @@ export default function App() {
 
   const rukujOdjavom = async () => {
     await StorageService.obrisiKorisnika();
+    await StorageService.ocistiLokalnePodsetnike();
     setKorisnik(null);
     setPrikaziAdmin(false);
   };

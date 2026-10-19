@@ -51,7 +51,12 @@ export const SyncService = {
         }
       }
 
-      // 4. Ažuriraj lokalnu licencu i resetuj 72h tajmer
+      // 4. Dvosmerna sinhronizacija: primi sve podsetnike sa servera i spoji u lokalnu bazu
+      if (data.server_podsetnici && Array.isArray(data.server_podsetnici)) {
+        await StorageService.spojiSaServerPodsetnicima(data.server_podsetnici);
+      }
+
+      // 5. Ažuriraj lokalnu licencu i resetuj 72h tajmer
       if (data.licenca) {
         const novaLicenca: LicencaCache = {
           token_active: data.licenca.token_active,

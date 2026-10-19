@@ -124,6 +124,12 @@ export default function AuthScreen({ onUspesanLogin }: AuthScreenProps) {
           poslednja_sinhronizacija: data.korisnik.server_vreme || new Date().toISOString()
         };
 
+        // Provera da li je drugi nalog ulogovan
+        const prethodniKorisnik = await StorageService.getKorisnik();
+        if (prethodniKorisnik && prethodniKorisnik.id !== data.korisnik.id) {
+          await StorageService.ocistiLokalnePodsetnike();
+        }
+
         await StorageService.sacuvajKorisnika(korisnikData);
         await StorageService.sacuvajLicencu(licencaData);
         onUspesanLogin(korisnikData);

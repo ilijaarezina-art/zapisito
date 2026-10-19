@@ -8,6 +8,32 @@ require_once 'config.php';
 $action = $_GET['action'] ?? '';
 $input = json_decode(file_get_contents('php://input'), true);
 
+function osigurajKolonePodsetnici($pdo) {
+    static $osigurano = false;
+    if ($osigurano) return;
+    $osigurano = true;
+
+    $kolone = [
+        'naslov' => "ALTER TABLE `podsetnici` ADD COLUMN `naslov` VARCHAR(255) NULL AFTER `sirovi_tekst`",
+        'tip_zabelezke' => "ALTER TABLE `podsetnici` ADD COLUMN `tip_zabelezke` VARCHAR(50) NULL DEFAULT 'posao' AFTER `naslov`",
+        'klijent_telefon' => "ALTER TABLE `podsetnici` ADD COLUMN `klijent_telefon` VARCHAR(50) NULL AFTER `klijent_ime`",
+        'obracunaj_pdv' => "ALTER TABLE `podsetnici` ADD COLUMN `obracunaj_pdv` TINYINT(1) NOT NULL DEFAULT 0 AFTER `valuta`",
+        'pdv_procenat' => "ALTER TABLE `podsetnici` ADD COLUMN `pdv_procenat` DECIMAL(5,2) NULL DEFAULT 20.00 AFTER `obracunaj_pdv`",
+        'pdv_iznos' => "ALTER TABLE `podsetnici` ADD COLUMN `pdv_iznos` DECIMAL(10,2) NULL DEFAULT 0.00 AFTER `pdv_procenat`",
+        'ukupno_sa_pdv' => "ALTER TABLE `podsetnici` ADD COLUMN `ukupno_sa_pdv` DECIMAL(10,2) NULL DEFAULT 0.00 AFTER `pdv_iznos`",
+        'kapara_iznos' => "ALTER TABLE `podsetnici` ADD COLUMN `kapara_iznos` DECIMAL(10,2) NULL DEFAULT 0.00 AFTER `je_kapara`",
+        'napomene' => "ALTER TABLE `podsetnici` ADD COLUMN `napomene` TEXT NULL AFTER `opis_zadatka`",
+        'stavke' => "ALTER TABLE `podsetnici` ADD COLUMN `stavke` LONGTEXT NULL AFTER `napomene`"
+    ];
+    foreach ($kolone as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (\Exception $e) {
+            // Kolona već postoji
+        }
+    }
+}
+
 switch ($action) {
     // ----------------------------------------------------
     // INICIJALIZACIJA BAZA I TABELA NA LIVE SERVERU
@@ -209,6 +235,7 @@ switch ($action) {
     // SINHRONIZACIJA (OFFLINE -> ONLINE)
     // ----------------------------------------------------
     case 'sync':
+        osigurajKolonePodsetnici($pdo);
         $userId = (int)($_GET['korisnik_id'] ?? ($input['korisnik_id'] ?? 0));
         $lokalniUnosi = $input['lokalni_unosi'] ?? [];
 
@@ -236,14 +263,73 @@ switch ($action) {
         $snimljeni = [];
 
         foreach ($lokalniUnosi as $unos) {
-            $uuid = $unos['uuid_lokalni'] ?? '';
+            $uuid = trim($unos['uuid_lokalni'] ?? '');
             if (!$uuid) continue;
 
             $chk = $pdo->prepare("SELECT id FROM podsetnici WHERE uuid_lokalni = ?");
             $chk->execute([$uuid]);
             $postoji = $chk->fetch();
 
+            $stavkeJson = !empty($unos['stavke']) ? json_encode($unos['stavke'], JSON_UNESCAPED_UNICODE) : null;
+            $tipZabelezke = !empty($unos['tip_zabelezke']) ? $unos['tip_zabelezke'] : 'posao';
+            $naslov = !empty($unos['naslov']) ? $unos['naslov'] : null;
+            $obracunajPdv = !empty($unos['obracunaj_pdv']) ? 1 : 0;
+            $pdvProcenat = isset($unos['pdv_procenat']) ? (float)$unos['pdv_procenat'] : 20.00;
+            $pdvIznos = isset($unos['pdv_iznos']) ? (float)$unos['pdv_iznos'] : 0.00;
+            $ukupnoSaPdv = isset($unos['ukupno_sa_pdv']) ? (float)$unos['ukupno_sa_pdv'] : (float)($unos['iznos'] ?? 0.00);
+            $kaparaIznos = isset($unos['kapara_iznos']) ? (float)$unos['kapara_iznos'] : 0.00;
+            $napomene = $unos['napomene'] ?? null;
+            $rokDatum = !empty($unos['rok_datum']) ? date('Y-m-d H:i:s', strtotime($unos['rok_datum'])) : null;
+            $kreiranoNaUredjaju = !empty($unos['kreirano_na_uredjaju']) ? date('Y-m-d H:i:s', strtotime($unos['kreirano_na_uredjaju'])) : date('Y-m-d H:i:s');
+            $jeZavrseno = !empty($unos['je_zavrseno']) ? 1 : 0;
+            $jeKapara = !empty($unos['je_kapara']) ? 1 : 0;
+
             if ($postoji) {
+                // Ažuriraj postojeći zapis najsvežijim podacima sa uređaja
+                $upd = $pdo->prepare("UPDATE podsetnici SET 
+                    naslov = COALESCE(?, naslov),
+                    tip_zabelezke = COALESCE(?, tip_zabelezke),
+                    sirovi_tekst = ?, 
+                    klijent_ime = ?, 
+                    klijent_telefon = ?, 
+                    lokacija = ?, 
+                    iznos = ?, 
+                    valuta = ?, 
+                    obracunaj_pdv = ?,
+                    pdv_procenat = ?,
+                    pdv_iznos = ?,
+                    ukupno_sa_pdv = ?,
+                    je_kapara = ?, 
+                    kapara_iznos = ?, 
+                    rok_datum = ?, 
+                    opis_zadatka = ?, 
+                    napomene = ?,
+                    stavke = ?, 
+                    je_zavrseno = ?,
+                    sinhronizovano_u = NOW()
+                    WHERE uuid_lokalni = ?");
+                $upd->execute([
+                    $naslov,
+                    $tipZabelezke,
+                    $unos['sirovi_tekst'] ?? '',
+                    $unos['klijent_ime'] ?? null,
+                    $unos['klijent_telefon'] ?? null,
+                    $unos['lokacija'] ?? null,
+                    $unos['iznos'] ?? 0,
+                    $unos['valuta'] ?? 'RSD',
+                    $obracunajPdv,
+                    $pdvProcenat,
+                    $pdvIznos,
+                    $ukupnoSaPdv,
+                    $jeKapara,
+                    $kaparaIznos,
+                    $rokDatum,
+                    $unos['opis_zadatka'] ?? null,
+                    $napomene,
+                    $stavkeJson,
+                    $jeZavrseno,
+                    $uuid
+                ]);
                 $snimljeni[] = ["uuid_lokalni" => $uuid, "server_id" => (int)$postoji['id']];
                 continue;
             }
@@ -252,25 +338,32 @@ switch ($action) {
                 continue; // Limit dostignut
             }
 
-            $stavkeJson = !empty($unos['stavke']) ? json_encode($unos['stavke'], JSON_UNESCAPED_UNICODE) : null;
             $ins = $pdo->prepare("INSERT INTO podsetnici 
-                (uuid_lokalni, korisnik_id, sirovi_tekst, klijent_ime, klijent_telefon, lokacija, iznos, valuta, je_kapara, rok_datum, opis_zadatka, stavke, je_zavrseno, kreirano_na_uredjaju) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                (uuid_lokalni, korisnik_id, naslov, tip_zabelezke, sirovi_tekst, klijent_ime, klijent_telefon, lokacija, iznos, valuta, obracunaj_pdv, pdv_procenat, pdv_iznos, ukupno_sa_pdv, je_kapara, kapara_iznos, rok_datum, opis_zadatka, napomene, stavke, je_zavrseno, kreirano_na_uredjaju) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $ins->execute([
                 $uuid,
                 $userId,
+                $naslov,
+                $tipZabelezke,
                 $unos['sirovi_tekst'] ?? '',
                 $unos['klijent_ime'] ?? null,
                 $unos['klijent_telefon'] ?? null,
                 $unos['lokacija'] ?? null,
                 $unos['iznos'] ?? 0,
                 $unos['valuta'] ?? 'RSD',
-                !empty($unos['je_kapara']) ? 1 : 0,
-                !empty($unos['rok_datum']) ? date('Y-m-d H:i:s', strtotime($unos['rok_datum'])) : null,
+                $obracunajPdv,
+                $pdvProcenat,
+                $pdvIznos,
+                $ukupnoSaPdv,
+                $jeKapara,
+                $kaparaIznos,
+                $rokDatum,
                 $unos['opis_zadatka'] ?? null,
+                $napomene,
                 $stavkeJson,
-                !empty($unos['je_zavrseno']) ? 1 : 0,
-                !empty($unos['kreirano_na_uredjaju']) ? date('Y-m-d H:i:s', strtotime($unos['kreirano_na_uredjaju'])) : date('Y-m-d H:i:s')
+                $jeZavrseno,
+                $kreiranoNaUredjaju
             ]);
 
             $snimljeni[] = ["uuid_lokalni" => $uuid, "server_id" => (int)$pdo->lastInsertId()];
@@ -282,9 +375,83 @@ switch ($action) {
         $pdo->prepare("UPDATE korisnici SET besplatni_unosi_iskorisceno = ?, poslednja_sinhronizacija = NOW() WHERE id = ?")
             ->execute([$iskorisceno, $userId]);
 
+        // Dvosmerna sinhronizacija: vrati sve podsetnike ovog korisnika sa servera
+        $stmtSvi = $pdo->prepare("SELECT * FROM podsetnici WHERE korisnik_id = ? ORDER BY kreirano_na_uredjaju DESC");
+        $stmtSvi->execute([$userId]);
+        $sviRedovi = $stmtSvi->fetchAll(PDO::FETCH_ASSOC);
+
+        $formatiraniPodsetnici = [];
+        foreach ($sviRedovi as $red) {
+            $stavkeDecoded = [];
+            if (!empty($red['stavke'])) {
+                $parsed = json_decode($red['stavke'], true);
+                if (is_array($parsed)) {
+                    $stavkeDecoded = $parsed;
+                }
+            }
+
+            // Pametna detekcija tipa ako je stara baza imala NULL
+            $tip = $red['tip_zabelezke'] ?? '';
+            if (!$tip || $tip === 'posao') {
+                if (!empty($red['naslov']) && stripos($red['naslov'], 'nabavk') !== false) {
+                    $tip = 'nabavka';
+                } elseif (!empty($red['sirovi_tekst']) && preg_match('/(jabuk|banan|kafa|hleb|mleko|krompir|sir|jaj|kupov|prodavnic)/ui', $red['sirovi_tekst'])) {
+                    $tip = 'nabavka';
+                } elseif (!empty($red['rok_datum']) && !empty($red['klijent_telefon']) && empty($stavkeDecoded)) {
+                    $tip = 'zakazano';
+                } else {
+                    $tip = $tip ?: 'posao';
+                }
+            }
+
+            $naslov = $red['naslov'] ?? null;
+            if (!$naslov) {
+                if ($tip === 'nabavka') {
+                    $naslov = 'Nabavka namirnica';
+                } elseif ($tip === 'zakazano') {
+                    $naslov = !empty($red['klijent_ime']) ? 'Termin - ' . $red['klijent_ime'] : 'Zakazani termin';
+                } else {
+                    $naslov = !empty($red['opis_zadatka']) ? $red['opis_zadatka'] : 'Posao #' . substr($red['uuid_lokalni'], -4);
+                }
+            }
+
+            if (empty($red['tip_zabelezke']) && $tip) {
+                try {
+                    $pdo->prepare("UPDATE podsetnici SET tip_zabelezke = ?, naslov = COALESCE(naslov, ?) WHERE id = ?")->execute([$tip, $naslov, $red['id']]);
+                } catch (\Exception $e) {}
+            }
+
+            $formatiraniPodsetnici[] = [
+                "uuid_lokalni" => $red['uuid_lokalni'],
+                "server_id" => (int)$red['id'],
+                "naslov" => $naslov,
+                "tip_zabelezke" => $tip,
+                "sirovi_tekst" => $red['sirovi_tekst'] ?? '',
+                "klijent_ime" => $red['klijent_ime'] ?? '',
+                "klijent_telefon" => $red['klijent_telefon'] ?? null,
+                "lokacija" => $red['lokacija'] ?? '',
+                "iznos" => (float)($red['iznos'] ?? 0),
+                "valuta" => $red['valuta'] ?? 'RSD',
+                "obracunaj_pdv" => !empty($red['obracunaj_pdv']),
+                "pdv_procenat" => isset($red['pdv_procenat']) ? (float)$red['pdv_procenat'] : 20.0,
+                "pdv_iznos" => isset($red['pdv_iznos']) ? (float)$red['pdv_iznos'] : 0.0,
+                "ukupno_sa_pdv" => isset($red['ukupno_sa_pdv']) ? (float)$red['ukupno_sa_pdv'] : (float)($red['iznos'] ?? 0),
+                "je_kapara" => !empty($red['je_kapara']),
+                "kapara_iznos" => isset($red['kapara_iznos']) ? (float)$red['kapara_iznos'] : 0.0,
+                "rok_datum" => $red['rok_datum'] ? date('c', strtotime($red['rok_datum'])) : null,
+                "opis_zadatka" => $red['opis_zadatka'] ?? '',
+                "napomene" => $red['napomene'] ?? '',
+                "stavke" => $stavkeDecoded,
+                "je_zavrseno" => !empty($red['je_zavrseno']),
+                "kreirano_na_uredjaju" => $red['kreirano_na_uredjaju'] ? date('c', strtotime($red['kreirano_na_uredjaju'])) : date('c'),
+                "is_synced" => true
+            ];
+        }
+
         echo json_encode([
             "status" => "success",
             "snimljeni_uuid" => $snimljeni,
+            "server_podsetnici" => $formatiraniPodsetnici,
             "licenca" => [
                 "token_active" => $pretplataAktivna ? 1 : 0,
                 "token_expires_at" => $user['token_expires_at'],

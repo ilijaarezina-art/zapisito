@@ -165,6 +165,44 @@ export const StorageService = {
     await AsyncStorage.setItem(STORAGE_KEYS.PODSETNICI, JSON.stringify(filtrirano));
   },
 
+  async ocistiLokalnePodsetnike(): Promise<void> {
+    await AsyncStorage.removeItem(STORAGE_KEYS.PODSETNICI);
+  },
+
+  async spojiSaServerPodsetnicima(serverPodsetnici: LokalniPodsetnik[]): Promise<LokalniPodsetnik[]> {
+    const lokalni = await this.getSviPodsetnici();
+    const mapa = new Map<string, LokalniPodsetnik>();
+
+    // 1. Stavi postojeće lokalne u mapu
+    for (const p of lokalni) {
+      mapa.set(p.uuid_lokalni, p);
+    }
+
+    // 2. Prođi kroz server unose i spoji
+    for (const s of serverPodsetnici) {
+      const postojeci = mapa.get(s.uuid_lokalni);
+      if (!postojeci) {
+        // Nije postojao lokalno na ovom uređaju — dodajemo ga sa servera
+        mapa.set(s.uuid_lokalni, { ...s, is_synced: true });
+      } else {
+        // Postoji lokalno: ako je lokalni bio sinhronizovan, preuzmi najnovije sa servera
+        if (postojeci.is_synced) {
+          mapa.set(s.uuid_lokalni, { ...postojeci, ...s, is_synced: true });
+        }
+      }
+    }
+
+    const spojenaLista = Array.from(mapa.values());
+    spojenaLista.sort((a, b) => {
+      const da = new Date(a.kreirano_na_uredjaju).getTime() || 0;
+      const db = new Date(b.kreirano_na_uredjaju).getTime() || 0;
+      return db - da;
+    });
+
+    await AsyncStorage.setItem(STORAGE_KEYS.PODSETNICI, JSON.stringify(spojenaLista));
+    return spojenaLista;
+  },
+
   // Licenca i Korisnik
   async getLicenca(): Promise<LicencaCache | null> {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.LICENCA);
