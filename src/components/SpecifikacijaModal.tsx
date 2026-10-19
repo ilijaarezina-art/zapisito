@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { LokalniPodsetnik, StavkaSpecifikacije, KorisnikCache } from '../services/storage';
 import { PdfService } from '../services/pdfService';
+import { parsirajTekst } from '../services/parser';
 
 interface SpecifikacijaModalProps {
   vidljiv: boolean;
@@ -54,11 +55,11 @@ export default function SpecifikacijaModal({
       '• Cene su informativne i zavise od proizvođača, regiona i trenutka nabavke.\n• Količine uključuju rezervu od 5-10% za sečenje i lom.\n• Materijal mora imati atest i deklaraciju u skladu sa standardima.'
   );
 
-  // Stavke tabele
-  const [stavke, setStavke] = useState<StavkaSpecifikacije[]>(() => {
-    if (posao.stavke && posao.stavke.length > 0) {
-      return posao.stavke.map((st, i) => ({
+  const dobaviInicijalneStavke = (p: LokalniPodsetnik): StavkaSpecifikacije[] => {
+    if (p.stavke && Array.isArray(p.stavke) && p.stavke.length > 0) {
+      return p.stavke.map((st, i) => ({
         ...st,
+        id: st.id || `posao_${Date.now()}_${i}`,
         br: i + 1,
         jed_mere: st.jed_mere || 'kom',
         kolicina: st.kolicina || 1,
@@ -66,18 +67,32 @@ export default function SpecifikacijaModal({
         iznos: st.iznos || (Number(st.kolicina) || 1) * (Number(st.jed_cena) || 0)
       }));
     }
-    return [
-      {
-        br: 1,
-        opis: 'Keramička pločica, I klasa',
-        jed_mere: 'm²',
-        kolicina: 10,
-        jed_cena: 2000,
-        iznos: 20000,
-        valuta: posao.valuta || 'RSD'
+    const tekst = p.sirovi_tekst || p.opis_zadatka || '';
+    if (tekst.trim()) {
+      const parsed = parsirajTekst(tekst, 'posao');
+      if (parsed.stavke && parsed.stavke.length > 0) {
+        return parsed.stavke;
       }
-    ];
-  });
+    }
+    return [];
+  };
+
+  // Stavke tabele
+  const [stavke, setStavke] = useState<StavkaSpecifikacije[]>(() => dobaviInicijalneStavke(posao));
+
+  // Sinhronizuj stanje kada se klikne na drugi posao
+  useEffect(() => {
+    if (posao) {
+      setNaslov(posao.naslov || posao.opis_zadatka || 'Građevinska specifikacija');
+      setKlijentIme(posao.klijent_ime || '');
+      setKlijentTelefon(posao.klijent_telefon || '');
+      setLokacija(posao.lokacija || '');
+      setValuta(posao.valuta || 'RSD');
+      setObracunajPdv(posao.obracunaj_pdv !== false);
+      setNapomene(posao.napomene || '• Cene su informativne i zavise od proizvođača, regiona i trenutka nabavke.\n• Količine uključuju rezervu od 5-10% za sečenje i lom.\n• Materijal mora imati atest i deklaraciju u skladu sa standardima.');
+      setStavke(dobaviInicijalneStavke(posao));
+    }
+  }, [posao?.uuid_lokalni]);
 
   const [cuva, setCuva] = useState(false);
   const [deliPdf, setDeliPdf] = useState(false);

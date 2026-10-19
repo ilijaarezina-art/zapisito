@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -36,6 +36,16 @@ export default function ZakazaniPosaoModal({
   );
   const [napomena, setNapomena] = useState(posao.opis_zadatka || '');
   const [cuva, setCuva] = useState(false);
+
+  useEffect(() => {
+    if (posao) {
+      setImePrezime(posao.klijent_ime || '');
+      setTelefon(posao.klijent_telefon || '');
+      setAdresaGrad(posao.lokacija || '');
+      setDatumTermina(posao.rok_datum ? new Date(posao.rok_datum).toISOString().slice(0, 16).replace('T', ' ') : '');
+      setNapomena(posao.opis_zadatka || '');
+    }
+  }, [posao?.uuid_lokalni]);
 
   const potvrdiISacuvaj = async () => {
     setCuva(true);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Linking
 } from 'react-native';
 import { LokalniPodsetnik, StavkaSpecifikacije } from '../services/storage';
+import { parsirajTekst } from '../services/parser';
 
 interface NabavkaModalProps {
   vidljiv: boolean;
@@ -43,17 +44,11 @@ export default function NabavkaModal({
 }: NabavkaModalProps) {
   if (!vidljiv || !nabavka) return null;
 
-  const [naslov, setNaslov] = useState(
-    nabavka.naslov &&
-      !nabavka.naslov.includes('Građevinsk') &&
-      !nabavka.naslov.includes('Specifikacija')
-      ? nabavka.naslov
-      : 'Nabavka'
-  );
-  const [stavke, setStavke] = useState<StavkaSpecifikacije[]>(() => {
-    if (nabavka.stavke && nabavka.stavke.length > 0) {
-      return nabavka.stavke.map((st, i) => ({
+  const dobaviInicijalneStavke = (nab: LokalniPodsetnik): StavkaSpecifikacije[] => {
+    if (nab.stavke && Array.isArray(nab.stavke) && nab.stavke.length > 0) {
+      return nab.stavke.map((st, i) => ({
         ...st,
+        id: st.id || `st_${Date.now()}_${i}`,
         br: i + 1,
         opis: st.opis || '',
         kolicina: st.kolicina || '1 kom',
@@ -62,39 +57,74 @@ export default function NabavkaModal({
         kupljeno: !!st.kupljeno
       }));
     }
-    return [
-      { br: 1, opis: 'Jabuke', kolicina: '2 kg', iznos: 0, valuta: 'RSD', kupljeno: false },
-      { br: 2, opis: 'Banane', kolicina: '1 kg', iznos: 0, valuta: 'RSD', kupljeno: false },
-      { br: 3, opis: 'Kafa', kolicina: '200 gr', iznos: 0, valuta: 'RSD', kupljeno: false }
-    ];
-  });
+    // Ako nema sačuvanih stavki, automatski ih parsiraj iz sirovog izgovorenog teksta
+    const tekst = nab.sirovi_tekst || nab.opis_zadatka || '';
+    if (tekst.trim()) {
+      const parsed = parsirajTekst(tekst, 'nabavka');
+      if (parsed.stavke && parsed.stavke.length > 0) {
+        return parsed.stavke;
+      }
+    }
+    return [];
+  };
 
+  const [naslov, setNaslov] = useState(
+    nabavka.naslov &&
+      !nabavka.naslov.includes('Građevinsk') &&
+      !nabavka.naslov.includes('Specifikacija')
+      ? nabavka.naslov
+      : 'Lista za nabavku'
+  );
+
+  const [stavke, setStavke] = useState<StavkaSpecifikacije[]>(() => dobaviInicijalneStavke(nabavka));
   const [novaNamirnica, setNovaNamirnica] = useState('');
   const [cuva, setCuva] = useState(false);
 
+  // Sinhronizacija kada se otvori drugi unos
+  useEffect(() => {
+    if (nabavka) {
+      setNaslov(
+        nabavka.naslov &&
+          !nabavka.naslov.includes('Građevinsk') &&
+          !nabavka.naslov.includes('Specifikacija')
+          ? nabavka.naslov
+          : 'Lista za nabavku'
+      );
+      setStavke(dobaviInicijalneStavke(nabavka));
+      setNovaNamirnica('');
+    }
+  }, [nabavka?.uuid_lokalni]);
+
   const prebaciKupljeno = (index: number) => {
-    const kopija = [...stavke];
-    kopija[index].kupljeno = !kopija[index].kupljeno;
-    setStavke(kopija);
+    setStavke(prev => {
+      const kopija = [...prev];
+      if (kopija[index]) {
+        kopija[index] = { ...kopija[index], kupljeno: !kopija[index].kupljeno };
+      }
+      return kopija;
+    });
   };
 
   const izmeniStavku = (index: number, polje: 'opis' | 'kolicina' | 'iznos', vrednost: string) => {
-    const kopija = [...stavke];
-    if (polje === 'iznos') {
-      kopija[index].iznos = parseFloat(vrednost.replace(',', '.')) || 0;
-    } else {
-      kopija[index][polje] = vrednost;
-    }
-    setStavke(kopija);
+    setStavke(prev => {
+      const kopija = [...prev];
+      if (!kopija[index]) return prev;
+      if (polje === 'iznos') {
+        kopija[index] = { ...kopija[index], iznos: parseFloat(vrednost.replace(',', '.')) || 0 };
+      } else {
+        kopija[index] = { ...kopija[index], [polje]: vrednost };
+      }
+      return kopija;
+    });
   };
 
   const obrisiStavku = (index: number) => {
-    const nova = stavke.filter((_, i) => i !== index).map((s, idx) => ({ ...s, br: idx + 1 }));
-    setStavke(nova);
+    setStavke(prev => prev.filter((_, i) => i !== index).map((s, idx) => ({ ...s, br: idx + 1 })));
   };
 
   const dodajStavku = () => {
     const nova: StavkaSpecifikacije = {
+      id: `item_${Date.now()}_${stavke.length}`,
       br: stavke.length + 1,
       opis: '',
       kolicina: '1 kom',
@@ -102,11 +132,12 @@ export default function NabavkaModal({
       valuta: 'RSD',
       kupljeno: false
     };
-    setStavke([...stavke, nova]);
+    setStavke(prev => [...prev, nova]);
   };
 
   const dodajBrzuNamirnicu = (artikal: { opis: string; kolicina: string }) => {
     const nova: StavkaSpecifikacije = {
+      id: `item_${Date.now()}_${stavke.length}`,
       br: stavke.length + 1,
       opis: artikal.opis,
       kolicina: artikal.kolicina,
@@ -114,46 +145,63 @@ export default function NabavkaModal({
       valuta: 'RSD',
       kupljeno: false
     };
-    setStavke([...stavke, nova]);
+    setStavke(prev => [...prev, nova]);
   };
 
   const dodajIzInputa = () => {
     if (!novaNamirnica.trim()) return;
-    const nova: StavkaSpecifikacije = {
-      br: stavke.length + 1,
-      opis: novaNamirnica.trim(),
-      kolicina: '1 kom',
-      iznos: 0,
-      valuta: 'RSD',
-      kupljeno: false
-    };
-    setStavke([...stavke, nova]);
+    const parsed = parsirajTekst(novaNamirnica.trim(), 'nabavka');
+    if (parsed.stavke && parsed.stavke.length > 0) {
+      setStavke(prev => [...prev, ...parsed.stavke!].map((s, idx) => ({ ...s, br: idx + 1 })));
+    } else {
+      const nova: StavkaSpecifikacije = {
+        id: `item_${Date.now()}_${stavke.length}`,
+        br: stavke.length + 1,
+        opis: novaNamirnica.trim().charAt(0).toUpperCase() + novaNamirnica.trim().slice(1),
+        kolicina: '1 kom',
+        iznos: 0,
+        valuta: 'RSD',
+        kupljeno: false
+      };
+      setStavke(prev => [...prev, nova]);
+    }
     setNovaNamirnica('');
   };
 
+  // Uklanjanje kupljenih stavki
   const ocistiKupljene = () => {
     const kupljeneBr = stavke.filter(s => s.kupljeno).length;
     if (kupljeneBr === 0) {
-      Alert.alert('Info', 'Nema označenih kupljenih stavki za čišćenje.');
+      if (Platform.OS === 'web') {
+        window.alert('Nema označenih kupljenih stavki za čišćenje.');
+      } else {
+        Alert.alert('Info', 'Nema označenih kupljenih stavki za čišćenje.');
+      }
       return;
     }
-    Alert.alert(
-      'Ukloni kupljene',
-      `Da li želite da uklonite ${kupljeneBr} kupljenih stavki sa spiska?`,
-      [
-        { text: 'Odustani', style: 'cancel' },
-        {
-          text: 'Ukloni',
-          style: 'destructive',
-          onPress: () => {
-            const preostale = stavke
-              .filter(s => !s.kupljeno)
-              .map((s, idx) => ({ ...s, br: idx + 1 }));
-            setStavke(preostale);
-          }
+
+    const izvrsiCiscenje = () => {
+      setStavke(prev => prev.filter(s => !s.kupljeno).map((s, idx) => ({ ...s, br: idx + 1 })));
+    };
+
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+        if (window.confirm(`Da li želite da uklonite ${kupljeneBr} kupljenih stavki sa spiska?`)) {
+          izvrsiCiscenje();
         }
-      ]
-    );
+      } else {
+        izvrsiCiscenje();
+      }
+    } else {
+      Alert.alert(
+        'Ukloni kupljene',
+        `Da li želite da uklonite ${kupljeneBr} kupljenih stavki sa spiska?`,
+        [
+          { text: 'Odustani', style: 'cancel' },
+          { text: 'Ukloni', style: 'destructive', onPress: izvrsiCiscenje }
+        ]
+      );
+    }
   };
 
   const potvrdiISacuvaj = async () => {

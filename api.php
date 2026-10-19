@@ -32,6 +32,13 @@ function osigurajKolonePodsetnici($pdo) {
             // Kolona već postoji
         }
     }
+
+    try {
+        $pdo->exec("ALTER TABLE `podsetnici` MODIFY COLUMN `sirovi_tekst` TEXT NOT NULL");
+    } catch (\Exception $e) {}
+    try {
+        $pdo->exec("ALTER TABLE `podsetnici` MODIFY COLUMN `opis_zadatka` TEXT NULL");
+    } catch (\Exception $e) {}
 }
 
 switch ($action) {
@@ -615,14 +622,31 @@ switch ($action) {
         $uuid = trim($input['uuid_lokalni'] ?? '');
         $userId = (int)($input['korisnik_id'] ?? 0);
 
-        if ($uuid && $userId) {
-            $pdo->prepare("DELETE FROM podsetnici WHERE uuid_lokalni = ? AND korisnik_id = ?")
-                ->execute([$uuid, $userId]);
+        if (!$userId) {
+            $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+            if (preg_match('/Bearer\s+(\S+)/', $authHeader, $matches)) {
+                $token = $matches[1];
+                $parts = explode('.', $token);
+                if (count($parts) === 3) {
+                    $payload = json_decode(base64_decode($parts[1]), true);
+                    $userId = (int)($payload['id'] ?? 0);
+                }
+            }
+        }
+
+        if ($uuid) {
+            if ($userId) {
+                $pdo->prepare("DELETE FROM podsetnici WHERE uuid_lokalni = ? AND korisnik_id = ?")
+                    ->execute([$uuid, $userId]);
+            } else {
+                $pdo->prepare("DELETE FROM podsetnici WHERE uuid_lokalni = ?")
+                    ->execute([$uuid]);
+            }
         }
 
         echo json_encode([
             "status" => "success",
-            "message" => "Posao uspešno obrisan sa servera."
+            "message" => "Zapis uspešno obrisan sa servera."
         ]);
         break;
 

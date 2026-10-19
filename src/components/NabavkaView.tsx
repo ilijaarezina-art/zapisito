@@ -166,20 +166,11 @@ export default function NabavkaView({
 
                 <TouchableOpacity
                   style={[styles.btnAkcijaMala, styles.btnAkcijaBrisi]}
-                  onPress={() => {
-                    Alert.alert(
-                      'Brisanje nabavke',
-                      'Da li ste sigurni da želite da obrišete ovu listu za nabavku?',
-                      [
-                        { text: 'Odustani', style: 'cancel' },
-                        {
-                          text: 'Obriši',
-                          style: 'destructive',
-                          onPress: () => onObrisi(nab.uuid_lokalni)
-                        }
-                      ]
-                    );
+                  onPress={(e: any) => {
+                    e?.stopPropagation?.();
+                    onObrisi(nab.uuid_lokalni);
                   }}
+                  title="Obriši listu"
                 >
                   <Text style={styles.btnAkcijaTekst}>🗑️</Text>
                 </TouchableOpacity>

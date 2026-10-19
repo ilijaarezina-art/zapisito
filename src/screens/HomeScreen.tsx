@@ -215,6 +215,11 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
     // Pokušaj tihe sinhronizacije na startu ako ima neta
     SyncService.izvrsiSinhronizaciju().then(() => ucitajPodatke());
 
+    // Automatska periodična sinhronizacija na svakih 25 sekundi
+    const syncInterval = setInterval(() => {
+      SyncService.izvrsiSinhronizaciju().then(() => ucitajPodatke());
+    }, 25000);
+
     if (Platform.OS === 'web') {
       const SpeechRecognition =
         (window as any).SpeechRecognition ||
@@ -223,7 +228,15 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
     } else {
       VoiceService.isAvailable().then(avail => setSpeechPodrzan(avail));
     }
+
+    return () => clearInterval(syncInterval);
   }, []);
+
+  // Automatska sinhronizacija i osvežavanje pri promeni taba
+  useEffect(() => {
+    ucitajPodatke();
+    SyncService.izvrsiSinhronizaciju().then(() => ucitajPodatke());
+  }, [glavniPrikaz]);
 
   const pokreniSnimanje = async () => {
     setJeSnimanjeAktivno(true);
@@ -522,38 +535,47 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
   };
 
   const obrisiOdredjeniPodsetnik = (item: LokalniPodsetnik) => {
-    const naziv = item.klijent_ime ? `posao za klijenta "${item.klijent_ime}"` : 'ovaj posao';
+    const naziv = item.klijent_ime
+      ? `posao za klijenta "${item.klijent_ime}"`
+      : (item.naslov || (item.tip_zabelezke === 'nabavka' ? 'ovu listu za nabavku' : 'ovaj zapis'));
 
     const izvrsiBrisanje = async () => {
       await StorageService.obrisiPodsetnik(item.uuid_lokalni);
       await ucitajPodatke();
 
-      // Obriši i na serveru ako ima interneta
+      // Obriši i na serveru
       try {
         const isPhp = DEFAULT_API_URL.includes('.php');
         const url = isPhp ? `${DEFAULT_API_URL}?action=delete_podsetnik` : `${DEFAULT_API_URL}/podsetnici/delete`;
-        fetch(url, {
+        await fetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${korisnik.token}`
+            Authorization: `Bearer ${korisnik?.token || ''}`
           },
           body: JSON.stringify({
             uuid_lokalni: item.uuid_lokalni,
-            korisnik_id: korisnik.id
+            korisnik_id: korisnik?.id
           })
-        }).catch(() => {});
-      } catch (e) {}
+        });
+      } catch (e) {
+        console.warn('Greška pri brisanju na serveru:', e);
+      }
+      await ucitajPodatke();
     };
 
     if (Platform.OS === 'web') {
-      if (window.confirm(`Da li ste sigurni da želite da trajno obrišete ${naziv}?`)) {
+      if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+        if (window.confirm(`Da li ste sigurni da želite da obrišete ${naziv}?`)) {
+          izvrsiBrisanje();
+        }
+      } else {
         izvrsiBrisanje();
       }
     } else {
       Alert.alert(
-        'Brisanje posla',
-        `Da li ste sigurni da želite da trajno obrišete ${naziv}?`,
+        'Brisanje zapisa',
+        `Da li ste sigurni da želite da obrišete ${naziv}?`,
         [
           { text: 'Odustani', style: 'cancel' },
           { text: 'Obriši', style: 'destructive', onPress: izvrsiBrisanje }
@@ -640,9 +662,20 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
     return '#10B981';
   };
 
-  // Filtriranje poslova: aktivni i završeni
-  const aktivniPoslovi = podsetnici.filter(p => !p.je_zavrseno);
-  const zavrseniPoslovi = podsetnici.filter(p => p.je_zavrseno);
+  // Filtriranje poslova, nabavki i zakazanih termina po tipu
+  const aktivniPoslovi = podsetnici.filter(
+    p => !p.je_zavrseno && (p.tip_zabelezke === 'posao' || (!p.tip_zabelezke && !p.rok_datum && (!p.stavke || !p.stavke.some(s => s.kupljeno !== undefined))))
+  );
+  const zavrseniPoslovi = podsetnici.filter(
+    p => p.je_zavrseno && (p.tip_zabelezke === 'posao' || (!p.tip_zabelezke && !p.rok_datum && (!p.stavke || !p.stavke.some(s => s.kupljeno !== undefined))))
+  );
+
+  const aktivneNabavke = podsetnici.filter(
+    p => !p.je_zavrseno && (p.tip_zabelezke === 'nabavka' || (p.stavke && p.stavke.some(s => s.kupljeno !== undefined)))
+  );
+  const aktivniZakazani = podsetnici.filter(
+    p => !p.je_zavrseno && p.tip_zabelezke === 'zakazano'
+  );
 
   const danasPocetak = new Date();
   danasPocetak.setHours(0, 0, 0, 0);
@@ -655,15 +688,9 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
     return d <= danasKraj;
   }).length;
 
-  const brojStavkiZaNabavku = aktivniPoslovi.reduce(
-    (cnt, p) => cnt + (p.stavke ? p.stavke.length : 0),
-    0
-  );
-
   const posloviZaTab = filterStatus === 'aktivni' ? aktivniPoslovi : zavrseniPoslovi;
 
   const filtriraniPoslovi = posloviZaTab
-    .filter(p => p.tip_zabelezke === 'posao' || (!p.tip_zabelezke && !p.rok_datum && (!p.stavke || !p.stavke.some(s => s.kupljeno !== undefined))))
     .filter(p => {
       // Filter chip
       if (aktivniChipFilter === 'danas') {
@@ -778,7 +805,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
           activeOpacity={0.7}
         >
           <Text style={[styles.glavniMeniTekst, glavniPrikaz === 'nabavka' && styles.glavniMeniTekstAktivno]}>
-            🛒 Nabavka
+            🛒 Nabavka ({aktivneNabavke.length})
           </Text>
         </TouchableOpacity>
 
@@ -788,7 +815,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
           activeOpacity={0.7}
         >
           <Text style={[styles.glavniMeniTekst, glavniPrikaz === 'kalendar' && styles.glavniMeniTekstAktivno]}>
-            📅 Zakazani poslovi
+            📅 Zakazani poslovi ({aktivniZakazani.length})
           </Text>
         </TouchableOpacity>
       </View>
@@ -1027,7 +1054,10 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
                       {item.klijent_telefon ? (
                         <TouchableOpacity
                           style={[styles.btnMalaAkcijaPosao, { backgroundColor: '#ECFDF5' }]}
-                          onPress={() => Linking.openURL(`tel:${item.klijent_telefon}`)}
+                          onPress={(e: any) => {
+                            e?.stopPropagation?.();
+                            Linking.openURL(`tel:${item.klijent_telefon}`);
+                          }}
                         >
                           <Text style={styles.btnAkcijaTekst}>📞</Text>
                         </TouchableOpacity>
@@ -1035,28 +1065,40 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
 
                       <TouchableOpacity
                         style={[styles.btnMalaAkcijaPosao, { backgroundColor: '#F0FDF4' }]}
-                        onPress={() => posaljiPorukuKlijentu(item)}
+                        onPress={(e: any) => {
+                          e?.stopPropagation?.();
+                          posaljiPorukuKlijentu(item);
+                        }}
                       >
                         <Text style={styles.btnAkcijaTekst}>💬</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
                         style={styles.btnMalaAkcijaPosao}
-                        onPress={() => PdfService.otvoriIliPodeliPdf(item, korisnik)}
+                        onPress={(e: any) => {
+                          e?.stopPropagation?.();
+                          PdfService.otvoriIliPodeliPdf(item, korisnik);
+                        }}
                       >
                         <Text style={styles.btnAkcijaTekst}>📄</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
                         style={styles.btnMalaAkcijaPosao}
-                        onPress={() => otvoriModalZaIzmenu(item)}
+                        onPress={(e: any) => {
+                          e?.stopPropagation?.();
+                          otvoriModalZaIzmenu(item);
+                        }}
                       >
                         <Text style={styles.btnAkcijaTekst}>✏️</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
                         style={[styles.btnMalaAkcijaPosao, styles.btnMalaAkcijaBrisi]}
-                        onPress={() => obrisiOdredjeniPodsetnik(item)}
+                        onPress={(e: any) => {
+                          e?.stopPropagation?.();
+                          obrisiOdredjeniPodsetnik(item);
+                        }}
                       >
                         <Text style={styles.btnAkcijaTekst}>🗑️</Text>
                       </TouchableOpacity>
@@ -1147,9 +1189,25 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
               </View>
             )}
 
+            {/* Indikator preostalog broja karaktera (do 500) */}
+            <View style={styles.brojacKarakteraRed}>
+              <Text style={styles.brojacKarakteraLabel}>
+                📝 {aktivniTipSnimanja === 'nabavka' ? 'Stavke za nabavku' : aktivniTipSnimanja === 'zakazano' ? 'Podaci o zakazanom poslu' : 'Specifikacija posla'}:
+              </Text>
+              <Text
+                style={[
+                  styles.brojacKarakteraBroj,
+                  500 - izgovoreniTekst.length <= 50 && styles.brojacKarakteraUpozorenje
+                ]}
+              >
+                Preostalo još: {Math.max(0, 500 - izgovoreniTekst.length)} / 500 karaktera
+              </Text>
+            </View>
+
             <TextInput
               style={styles.modalInput}
               multiline
+              maxLength={500}
               placeholder={
                 aktivniTipSnimanja === 'nabavka'
                   ? "npr. Jabuke 2kg, Banane 1 kg, kafa 200gr, 2 hleba, mleko 1 litar"
@@ -1157,7 +1215,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
                       ? "npr. Jovan Petrović, 064 123 4567, Smederevo Knez Mihailova 12, sutra u 10 sati, krečenje stana"
                       : "npr. Podna pločica 120 kvadrata po 2800 dinara, lepak 1200 kg po 95 dinara, fug masa 150 kg po 320 dinara")
               }
-              placeholderTextColor="#71717A"
+              placeholderTextColor="#94A3B8"
               value={izgovoreniTekst}
               onChangeText={rukujIzmenomTeksta}
               autoFocus
@@ -1399,6 +1457,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
       {/* 1. MODAL ZA SPECIFIKACIJU POSLA (SLIKA 1) */}
       {editUnosOtvoren && (izabraniPodsetnikZaEdit?.tip_zabelezke === 'posao' || !izabraniPodsetnikZaEdit?.tip_zabelezke) && (
         <SpecifikacijaModal
+          key={izabraniPodsetnikZaEdit.uuid_lokalni}
           vidljiv={editUnosOtvoren}
           posao={izabraniPodsetnikZaEdit}
           korisnik={korisnik}
@@ -1410,7 +1469,11 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
             await StorageService.azurirajPodsetnik(azuriran.uuid_lokalni, azuriran);
             await ucitajPodatke();
             SyncService.izvrsiSinhronizaciju().then(() => ucitajPodatke());
-            Alert.alert('Sačuvano', 'Specifikacija i promene su uspešno ažurirane!');
+            if (Platform.OS === 'web') {
+              window.alert('Specifikacija i promene su uspešno ažurirane!');
+            } else {
+              Alert.alert('Sačuvano', 'Specifikacija i promene su uspešno ažurirane!');
+            }
           }}
         />
       )}
@@ -1418,6 +1481,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
       {/* 2. MODAL ZA NABAVKU / LISTU ZA KUPOVINU (SLIKA 2) */}
       {editUnosOtvoren && izabraniPodsetnikZaEdit?.tip_zabelezke === 'nabavka' && (
         <NabavkaModal
+          key={izabraniPodsetnikZaEdit.uuid_lokalni}
           vidljiv={editUnosOtvoren}
           nabavka={izabraniPodsetnikZaEdit}
           onZatvori={() => {
@@ -1428,7 +1492,11 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
             await StorageService.azurirajPodsetnik(azuriran.uuid_lokalni, azuriran);
             await ucitajPodatke();
             SyncService.izvrsiSinhronizaciju().then(() => ucitajPodatke());
-            Alert.alert('Sačuvano', 'Lista za nabavku je uspešno ažurirana!');
+            if (Platform.OS === 'web') {
+              window.alert('Lista za nabavku je uspešno ažurirana!');
+            } else {
+              Alert.alert('Sačuvano', 'Lista za nabavku je uspešno ažurirana!');
+            }
           }}
         />
       )}
@@ -1436,6 +1504,7 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
       {/* 3. MODAL ZA ZAKAZANI POSAO / TERMIN */}
       {editUnosOtvoren && izabraniPodsetnikZaEdit?.tip_zabelezke === 'zakazano' && (
         <ZakazaniPosaoModal
+          key={izabraniPodsetnikZaEdit.uuid_lokalni}
           vidljiv={editUnosOtvoren}
           posao={izabraniPodsetnikZaEdit}
           onZatvori={() => {
@@ -1446,7 +1515,11 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
             await StorageService.azurirajPodsetnik(azuriran.uuid_lokalni, azuriran);
             await ucitajPodatke();
             SyncService.izvrsiSinhronizaciju().then(() => ucitajPodatke());
-            Alert.alert('Sačuvano', 'Zakazani termin je uspešno ažuriran!');
+            if (Platform.OS === 'web') {
+              window.alert('Zakazani termin je uspešno ažuriran!');
+            } else {
+              Alert.alert('Sačuvano', 'Zakazani termin je uspešno ažuriran!');
+            }
           }}
         />
       )}
@@ -1634,6 +1707,26 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   modalNaslov: { color: '#0F172A', fontSize: 16, fontWeight: '700' },
   modalZatvori: { color: '#64748B', fontSize: 20, fontWeight: 'bold' },
+  brojacKarakteraRed: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+    paddingHorizontal: 2
+  },
+  brojacKarakteraLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569'
+  },
+  brojacKarakteraBroj: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#059669'
+  },
+  brojacKarakteraUpozorenje: {
+    color: '#DC2626'
+  },
   modalInput: {
     backgroundColor: '#F8FAFC',
     color: '#0F172A',

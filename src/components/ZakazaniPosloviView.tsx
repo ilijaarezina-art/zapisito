@@ -256,19 +256,9 @@ export default function ZakazaniPosloviView({
               {/* 5. OBRIŠI */}
               <TouchableOpacity
                 style={[styles.btnOneTapIkona, styles.btnOneTapBrisi]}
-                onPress={() => {
-                  Alert.alert(
-                    'Brisanje termina',
-                    'Da li ste sigurni da želite da obrišete ovaj zakazani posao?',
-                    [
-                      { text: 'Odustani', style: 'cancel' },
-                      {
-                        text: 'Obriši',
-                        style: 'destructive',
-                        onPress: () => onObrisi(item.uuid_lokalni)
-                      }
-                    ]
-                  );
+                onPress={(e: any) => {
+                  e?.stopPropagation?.();
+                  onObrisi(item.uuid_lokalni);
                 }}
                 title="Obriši termin"
               >
