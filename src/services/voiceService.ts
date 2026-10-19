@@ -103,7 +103,12 @@ export const VoiceService = {
           let isFinal = false;
           for (let i = 0; i < event.results.length; i++) {
             if (event.results[i] && event.results[i][0]) {
-              transcript += event.results[i][0].transcript;
+              const chunk = event.results[i][0].transcript || '';
+              if (transcript && !transcript.endsWith(' ') && !chunk.startsWith(' ')) {
+                transcript += ' ' + chunk;
+              } else {
+                transcript += chunk;
+              }
               if (event.results[i].isFinal) isFinal = true;
             }
           }

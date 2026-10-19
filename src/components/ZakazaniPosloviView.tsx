@@ -178,7 +178,7 @@ export default function ZakazaniPosloviView({
                   item.je_zavrseno && styles.btnStatusZavrsenoAktivno
                 ]}
                 onPress={() => onZavrsiPosao(item.uuid_lokalni, item.je_zavrseno)}
-                title={item.je_zavrseno ? 'Vrati u aktivne' : 'Označi kao završeno'}
+                accessibilityLabel={item.je_zavrseno ? 'Vrati u aktivne' : 'Označi kao završeno'}
               >
                 <Text style={styles.btnStatusZavrsenoTekst}>
                   {item.je_zavrseno ? '✅ Završen' : '⏳ U toku'}
@@ -248,7 +248,7 @@ export default function ZakazaniPosloviView({
               <TouchableOpacity
                 style={styles.btnOneTapIkona}
                 onPress={() => onIzaberiPosao(item)}
-                title="Izmeni radni nalog"
+                accessibilityLabel="Izmeni radni nalog"
               >
                 <Text style={styles.btnOneTapIkonaTekst}>✏️</Text>
               </TouchableOpacity>
@@ -260,7 +260,7 @@ export default function ZakazaniPosloviView({
                   e?.stopPropagation?.();
                   onObrisi(item.uuid_lokalni);
                 }}
-                title="Obriši termin"
+                accessibilityLabel="Obriši termin"
               >
                 <Text style={styles.btnOneTapIkonaTekst}>🗑️</Text>
               </TouchableOpacity>

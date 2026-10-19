@@ -2,7 +2,7 @@
   "expo": {
     "name": "ZapišiTo",
     "slug": "zapisito",
-    "version": "1.0.14",
+    "version": "1.0.15",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,7 +13,7 @@
     },
     "android": {
       "package": "com.zapisito.app",
-      "versionCode": 9,
+      "versionCode": 10,
       "permissions": [
         "RECORD_AUDIO",
         "INTERNET"

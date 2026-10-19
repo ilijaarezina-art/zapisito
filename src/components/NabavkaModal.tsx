@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { LokalniPodsetnik, StavkaSpecifikacije } from '../services/storage';
 import { parsirajTekst } from '../services/parser';
+import { VoiceService } from '../services/voiceService';
 
 interface NabavkaModalProps {
   vidljiv: boolean;
@@ -79,6 +80,132 @@ export default function NabavkaModal({
   const [stavke, setStavke] = useState<StavkaSpecifikacije[]>(() => dobaviInicijalneStavke(nabavka));
   const [novaNamirnica, setNovaNamirnica] = useState('');
   const [cuva, setCuva] = useState(false);
+
+  // Pametno diktiranje namirnica sa pauzom od 3 sec za novu stavku
+  const [jeSnimanjeAktivno, setJeSnimanjeAktivno] = useState(false);
+  const [glasStatus, setGlasStatus] = useState<string>('');
+  const pauzaTajmerRef = useRef<any>(null);
+  const tekuciGovorRef = useRef<string>('');
+  const poslednjiRawGovorRef = useRef<string>('');
+  const jeSnimanjeAktivnoRef = useRef<boolean>(false);
+
+  const zaustaviDiktiranje = () => {
+    if (pauzaTajmerRef.current) {
+      clearTimeout(pauzaTajmerRef.current);
+      pauzaTajmerRef.current = null;
+    }
+    if (tekuciGovorRef.current && tekuciGovorRef.current.trim().length > 1) {
+      ubaciStavkuIzGovora(tekuciGovorRef.current.trim());
+      tekuciGovorRef.current = '';
+    }
+    VoiceService.stopListening();
+    setJeSnimanjeAktivno(false);
+    jeSnimanjeAktivnoRef.current = false;
+    setGlasStatus('');
+  };
+
+  const ubaciStavkuIzGovora = (tekst: string) => {
+    const parsed = parsirajTekst(tekst, 'nabavka');
+    if (parsed.stavke && parsed.stavke.length > 0) {
+      setStavke(prev => {
+        const nove = [...prev];
+        parsed.stavke!.forEach(ns => {
+          nove.push({
+            ...ns,
+            id: `glas_art_${Date.now()}_${Math.random()}`,
+            br: nove.length + 1,
+            kupljeno: false
+          });
+        });
+        return nove;
+      });
+      const prva = parsed.stavke[0];
+      setGlasStatus(`✅ Dodato: ${prva.opis} (${prva.kolicina || '1 kom'}) ↵`);
+      setTimeout(() => {
+        if (jeSnimanjeAktivnoRef.current) {
+          setGlasStatus('🎙️ Slušam sledeću namirnicu (pauza 3s = nova stavka)...');
+        }
+      }, 3000);
+    }
+  };
+
+  const pokreniDiktiranje = async () => {
+    setJeSnimanjeAktivno(true);
+    jeSnimanjeAktivnoRef.current = true;
+    tekuciGovorRef.current = '';
+    poslednjiRawGovorRef.current = '';
+    setGlasStatus('🎙️ Slušam... Nabrajanje namirnica (pauza 3s dodaje stavku).');
+
+    const uspeh = await VoiceService.startListening({
+      lang: 'sr-RS',
+      onStart: () => {
+        setJeSnimanjeAktivno(true);
+        jeSnimanjeAktivnoRef.current = true;
+      },
+      onResult: (transkript: string) => {
+        if (!transkript || !transkript.trim()) return;
+
+        let novo = transkript;
+        const stari = poslednjiRawGovorRef.current;
+        if (stari && novo.startsWith(stari)) {
+          novo = novo.substring(stari.length).trim();
+        } else if (stari && novo.length > stari.length) {
+          novo = novo.substring(stari.length).trim();
+        }
+
+        tekuciGovorRef.current = novo;
+        if (novo.trim()) {
+          setGlasStatus(`🗣️ "${novo.trim()}" (pauzirajte 3s za unos)`);
+        }
+
+        if (pauzaTajmerRef.current) {
+          clearTimeout(pauzaTajmerRef.current);
+        }
+
+        pauzaTajmerRef.current = setTimeout(() => {
+          if (!jeSnimanjeAktivnoRef.current) return;
+          if (tekuciGovorRef.current && tekuciGovorRef.current.trim().length > 1) {
+            poslednjiRawGovorRef.current = transkript;
+            const zaUnos = tekuciGovorRef.current.trim();
+            tekuciGovorRef.current = '';
+            ubaciStavkuIzGovora(zaUnos);
+          }
+        }, 3000);
+      },
+      onError: () => {
+        zaustaviDiktiranje();
+      },
+      onEnd: () => {
+        setJeSnimanjeAktivno(false);
+        jeSnimanjeAktivnoRef.current = false;
+        if (pauzaTajmerRef.current) {
+          clearTimeout(pauzaTajmerRef.current);
+          pauzaTajmerRef.current = null;
+        }
+      }
+    });
+
+    if (!uspeh) {
+      zaustaviDiktiranje();
+    }
+  };
+
+  const toggleDiktiranje = () => {
+    if (jeSnimanjeAktivno) {
+      zaustaviDiktiranje();
+    } else {
+      pokreniDiktiranje();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pauzaTajmerRef.current) {
+        clearTimeout(pauzaTajmerRef.current);
+      }
+      VoiceService.stopListening();
+    };
+  }, []);
 
   // Sinhronizacija kada se otvori drugi unos
   useEffect(() => {
@@ -280,7 +407,7 @@ export default function NabavkaModal({
             <View style={styles.brziUnosRed}>
               <TextInput
                 style={styles.brziUnosInput}
-                placeholder="Dodaj novu stavku (npr. Maslinovo ulje 1l)..."
+                placeholder="Dodaj stavku (npr. Maslinovo ulje 1l)..."
                 placeholderTextColor="#94A3B8"
                 value={novaNamirnica}
                 onChangeText={setNovaNamirnica}
@@ -289,7 +416,21 @@ export default function NabavkaModal({
               <TouchableOpacity style={styles.btnBrzoDodaj} onPress={dodajIzInputa}>
                 <Text style={styles.btnBrzoDodajTekst}>+ Dodaj</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btnGlasNabavka, jeSnimanjeAktivno && styles.btnGlasNabavkaAktivno]}
+                onPress={toggleDiktiranje}
+              >
+                <Text style={styles.btnGlasNabavkaTekst}>
+                  {jeSnimanjeAktivno ? '⏹️' : '🎙️'}
+                </Text>
+              </TouchableOpacity>
             </View>
+
+            {glasStatus ? (
+              <View style={[styles.glasStatusKutija, jeSnimanjeAktivno && styles.glasStatusKutijaAktivno]}>
+                <Text style={styles.glasStatusTekst}>{glasStatus}</Text>
+              </View>
+            ) : null}
 
             {/* Čipovi za česte namirnice (Bring! stil) */}
             <Text style={styles.cesteLabel}>⚡ Brzi izbor namirnica jednim klikom:</Text>
@@ -538,6 +679,41 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 13
+  },
+  btnGlasNabavka: {
+    height: 40,
+    width: 40,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#10B981',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  btnGlasNabavkaAktivno: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#EF4444'
+  },
+  btnGlasNabavkaTekst: {
+    fontSize: 16
+  },
+  glasStatusKutija: {
+    marginBottom: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE'
+  },
+  glasStatusKutijaAktivno: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#10B981'
+  },
+  glasStatusTekst: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0F172A'
   },
   cesteLabel: {
     fontSize: 11,

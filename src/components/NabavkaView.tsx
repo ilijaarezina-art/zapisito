@@ -151,7 +151,7 @@ export default function NabavkaView({
                 <TouchableOpacity
                   style={styles.btnAkcijaMala}
                   onPress={() => podeliNaWhatsApp(nab)}
-                  title="Podeli na WhatsApp"
+                  accessibilityLabel="Podeli na WhatsApp"
                 >
                   <Text style={styles.btnAkcijaTekst}>💬</Text>
                 </TouchableOpacity>
@@ -159,7 +159,7 @@ export default function NabavkaView({
                 <TouchableOpacity
                   style={styles.btnAkcijaMala}
                   onPress={() => onOtvoriEdit(nab)}
-                  title="Izmeni listu"
+                  accessibilityLabel="Izmeni listu"
                 >
                   <Text style={styles.btnAkcijaTekst}>✏️</Text>
                 </TouchableOpacity>
@@ -170,7 +170,7 @@ export default function NabavkaView({
                     e?.stopPropagation?.();
                     onObrisi(nab.uuid_lokalni);
                   }}
-                  title="Obriši listu"
+                  accessibilityLabel="Obriši listu"
                 >
                   <Text style={styles.btnAkcijaTekst}>🗑️</Text>
                 </TouchableOpacity>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
 import { LokalniPodsetnik, StavkaSpecifikacije, KorisnikCache } from '../services/storage';
 import { PdfService } from '../services/pdfService';
 import { parsirajTekst } from '../services/parser';
+import { VoiceService } from '../services/voiceService';
 
 interface SpecifikacijaModalProps {
   vidljiv: boolean;
@@ -84,9 +85,6 @@ export default function SpecifikacijaModal({
   useEffect(() => {
     if (posao) {
       setNaslov(posao.naslov || posao.opis_zadatka || 'Građevinska specifikacija');
-      setKlijentIme(posao.klijent_ime || '');
-      setKlijentTelefon(posao.klijent_telefon || '');
-      setLokacija(posao.lokacija || '');
       setValuta(posao.valuta || 'RSD');
       setObracunajPdv(posao.obracunaj_pdv !== false);
       setNapomene(posao.napomene || '• Cene su informativne i zavise od proizvođača, regiona i trenutka nabavke.\n• Količine uključuju rezervu od 5-10% za sečenje i lom.\n• Materijal mora imati atest i deklaraciju u skladu sa standardima.');
@@ -96,6 +94,132 @@ export default function SpecifikacijaModal({
 
   const [cuva, setCuva] = useState(false);
   const [deliPdf, setDeliPdf] = useState(false);
+
+  // Pametno diktiranje stavki sa detekcijom pauze od 3 sec za novu stavku
+  const [jeSnimanjeAktivno, setJeSnimanjeAktivno] = useState(false);
+  const [glasStatus, setGlasStatus] = useState<string>('');
+  const pauzaTajmerRef = useRef<any>(null);
+  const tekuciGovorRef = useRef<string>('');
+  const poslednjiRawGovorRef = useRef<string>('');
+  const jeSnimanjeAktivnoRef = useRef<boolean>(false);
+
+  const zaustaviDiktiranjeStavki = () => {
+    if (pauzaTajmerRef.current) {
+      clearTimeout(pauzaTajmerRef.current);
+      pauzaTajmerRef.current = null;
+    }
+    if (tekuciGovorRef.current && tekuciGovorRef.current.trim().length > 1) {
+      ubaciStavkuIzTeksta(tekuciGovorRef.current.trim());
+      tekuciGovorRef.current = '';
+    }
+    VoiceService.stopListening();
+    setJeSnimanjeAktivno(false);
+    jeSnimanjeAktivnoRef.current = false;
+    setGlasStatus('');
+  };
+
+  const ubaciStavkuIzTeksta = (tekst: string) => {
+    const parsed = parsirajTekst(tekst, 'posao');
+    if (parsed.stavke && parsed.stavke.length > 0) {
+      setStavke(prev => {
+        const nove = [...prev];
+        parsed.stavke!.forEach(ns => {
+          nove.push({
+            ...ns,
+            id: `glas_${Date.now()}_${Math.random()}`,
+            br: nove.length + 1,
+            valuta
+          });
+        });
+        return nove;
+      });
+      const prva = parsed.stavke[0];
+      setGlasStatus(`✅ Dodato: ${prva.opis} (${prva.kolicina} ${prva.jed_mere || ''}) ↵`);
+      setTimeout(() => {
+        if (jeSnimanjeAktivnoRef.current) {
+          setGlasStatus('🎙️ Slušam sledeću stavku (pauza 3s = nov red)...');
+        }
+      }, 3000);
+    }
+  };
+
+  const pokreniDiktiranjeStavki = async () => {
+    setJeSnimanjeAktivno(true);
+    jeSnimanjeAktivnoRef.current = true;
+    tekuciGovorRef.current = '';
+    poslednjiRawGovorRef.current = '';
+    setGlasStatus('🎙️ Slušam... Izgovorite stavku i napravite pauzu od 3 sekunde.');
+
+    const uspeh = await VoiceService.startListening({
+      lang: 'sr-RS',
+      onStart: () => {
+        setJeSnimanjeAktivno(true);
+        jeSnimanjeAktivnoRef.current = true;
+      },
+      onResult: (transkript: string) => {
+        if (!transkript || !transkript.trim()) return;
+
+        let novo = transkript;
+        const stari = poslednjiRawGovorRef.current;
+        if (stari && novo.startsWith(stari)) {
+          novo = novo.substring(stari.length).trim();
+        } else if (stari && novo.length > stari.length) {
+          novo = novo.substring(stari.length).trim();
+        }
+
+        tekuciGovorRef.current = novo;
+        if (novo.trim()) {
+          setGlasStatus(`🗣️ "${novo.trim()}" (pauzirajte 3s za novi red)`);
+        }
+
+        if (pauzaTajmerRef.current) {
+          clearTimeout(pauzaTajmerRef.current);
+        }
+
+        pauzaTajmerRef.current = setTimeout(() => {
+          if (!jeSnimanjeAktivnoRef.current) return;
+          if (tekuciGovorRef.current && tekuciGovorRef.current.trim().length > 1) {
+            poslednjiRawGovorRef.current = transkript;
+            const zaUnos = tekuciGovorRef.current.trim();
+            tekuciGovorRef.current = '';
+            ubaciStavkuIzTeksta(zaUnos);
+          }
+        }, 3000);
+      },
+      onError: () => {
+        zaustaviDiktiranjeStavki();
+      },
+      onEnd: () => {
+        setJeSnimanjeAktivno(false);
+        jeSnimanjeAktivnoRef.current = false;
+        if (pauzaTajmerRef.current) {
+          clearTimeout(pauzaTajmerRef.current);
+          pauzaTajmerRef.current = null;
+        }
+      }
+    });
+
+    if (!uspeh) {
+      zaustaviDiktiranjeStavki();
+    }
+  };
+
+  const toggleDiktiranjeStavki = () => {
+    if (jeSnimanjeAktivno) {
+      zaustaviDiktiranjeStavki();
+    } else {
+      pokreniDiktiranjeStavki();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pauzaTajmerRef.current) {
+        clearTimeout(pauzaTajmerRef.current);
+      }
+      VoiceService.stopListening();
+    };
+  }, []);
 
   // Proračuni
   const ukupnoBezPdv = stavke.reduce((sum, s) => sum + (Number(s.iznos) || 0), 0);
@@ -334,10 +458,26 @@ export default function SpecifikacijaModal({
               </View>
             </ScrollView>
 
-            {/* Dugme za dodavanje novog reda */}
-            <TouchableOpacity style={styles.btnDodajStavku} onPress={dodajNovuStavku}>
-              <Text style={styles.btnDodajStavkuTekst}>+ Dodaj novu stavku u tabelu</Text>
-            </TouchableOpacity>
+            {/* Dugmad za dodavanje novog reda: Ručno i Glasom (3s pauza) */}
+            <View style={styles.akcijeDodavanjaRed}>
+              <TouchableOpacity style={styles.btnDodajStavku} onPress={dodajNovuStavku}>
+                <Text style={styles.btnDodajStavkuTekst}>+ Dodaj ručno</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btnDiktirajStavke, jeSnimanjeAktivno && styles.btnDiktirajStavkeAktivno]}
+                onPress={toggleDiktiranjeStavki}
+              >
+                <Text style={styles.btnDiktirajStavkeTekst}>
+                  {jeSnimanjeAktivno ? '⏹️ Zaustavi govor' : '🎙️ Diktiraj stavke (3s pauza = nov red)'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {glasStatus ? (
+              <View style={[styles.glasStatusKutija, jeSnimanjeAktivno && styles.glasStatusKutijaAktivno]}>
+                <Text style={styles.glasStatusTekst}>{glasStatus}</Text>
+              </View>
+            ) : null}
 
             {/* UKUPNE SUME I PDV */}
             <View style={styles.sumeKontejner}>
@@ -583,13 +723,18 @@ const styles = StyleSheet.create({
   btnBrisiStavkuTekst: {
     fontSize: 16
   },
+  akcijeDodavanjaRed: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10
+  },
   btnDodajStavku: {
     paddingVertical: 9,
     paddingHorizontal: 14,
     backgroundColor: '#F1F5F9',
     borderRadius: 6,
-    alignSelf: 'flex-start',
-    marginTop: 10,
     borderWidth: 1,
     borderColor: '#CBD5E1'
   },
@@ -597,6 +742,41 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#0284C7'
+  },
+  btnDiktirajStavke: {
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    backgroundColor: '#ECFDF5',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#10B981'
+  },
+  btnDiktirajStavkeAktivno: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#EF4444'
+  },
+  btnDiktirajStavkeTekst: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#047857'
+  },
+  glasStatusKutija: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE'
+  },
+  glasStatusKutijaAktivno: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#10B981'
+  },
+  glasStatusTekst: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0F172A'
   },
   sumeKontejner: {
     marginTop: 20,

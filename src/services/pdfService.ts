@@ -253,5 +253,9 @@ export const PdfService = {
       console.error('Greška pri kreiranju PDF-a:', error);
       Alert.alert('Greška', 'Nije uspelo kreiranje predračuna: ' + (error?.message || ''));
     }
+  },
+
+  async generisiIDeliPdf(item: LokalniPodsetnik, majstor: KorisnikCache): Promise<void> {
+    return this.otvoriIliPodeliPdf(item, majstor);
   }
 };

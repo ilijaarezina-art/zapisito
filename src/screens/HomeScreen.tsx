@@ -54,6 +54,14 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
   const [aktivniChipFilter, setAktivniChipFilter] = useState<'svi' | 'danas' | 'kapara' | 'materijal'>('svi');
   const recognitionRef = useRef<any>(null);
 
+  // Pametna detekcija pauze u govoru (3 sec) za automatsko kreiranje novog reda u specifikaciji
+  const pauzaTajmerRef = useRef<any>(null);
+  const potvrdjeniRedoviRef = useRef<string[]>([]);
+  const tekuciGovorRef = useRef<string>('');
+  const poslednjiRawGovorRef = useRef<string>('');
+  const jeSnimanjeAktivnoRef = useRef<boolean>(false);
+  const [pauzaStatusPoruka, setPauzaStatusPoruka] = useState<string>('');
+
   // Modal za naknadnu izmenu / doradu unosa posla
   const [editUnosOtvoren, setEditUnosOtvoren] = useState(false);
   const [izabraniPodsetnikZaEdit, setIzabraniPodsetnikZaEdit] = useState<LokalniPodsetnik | null>(null);
@@ -240,20 +248,73 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
 
   const pokreniSnimanje = async () => {
     setJeSnimanjeAktivno(true);
+    jeSnimanjeAktivnoRef.current = true;
 
     const uspeh = await VoiceService.startListening({
       lang: 'sr-RS',
       onStart: () => {
         setJeSnimanjeAktivno(true);
+        jeSnimanjeAktivnoRef.current = true;
       },
       onResult: (transkript: string) => {
-        if (transkript.trim()) {
-          rukujIzmenomTeksta(transkript);
+        if (!transkript || !transkript.trim()) return;
+
+        // Odbacujemo deo koji je već potvrđen i smešten u prethodne redove
+        let novo = transkript;
+        const stariRaw = poslednjiRawGovorRef.current;
+        if (stariRaw && novo.startsWith(stariRaw)) {
+          novo = novo.substring(stariRaw.length).trim();
+        } else if (stariRaw && novo.length > stariRaw.length) {
+          novo = novo.substring(stariRaw.length).trim();
         }
+
+        tekuciGovorRef.current = novo;
+
+        // Sastavi kompletan tekst: svi prethodni redovi + trenutni tekući govor
+        const sviRedovi = [...potvrdjeniRedoviRef.current];
+        if (novo.trim()) {
+          sviRedovi.push(novo.trim());
+        }
+        const ceoTekst = sviRedovi.join('\n');
+        rukujIzmenomTeksta(ceoTekst);
+
+        // Resetujemo tajmer pauze na 3000ms (3 sekunde tišine)
+        if (pauzaTajmerRef.current) {
+          clearTimeout(pauzaTajmerRef.current);
+        }
+
+        pauzaTajmerRef.current = setTimeout(() => {
+          if (!jeSnimanjeAktivnoRef.current) return;
+
+          // Ako postoji izgovoren tekst u tekućem segmentu duži od 1 karaktera
+          if (tekuciGovorRef.current && tekuciGovorRef.current.trim().length > 1) {
+            // DETEKTOVANA PAUZA OD 3 SEKUNDE!
+            // Zaključujemo tekuću stavku i pravimo novi red u specifikaciji!
+            potvrdjeniRedoviRef.current.push(tekuciGovorRef.current.trim());
+            poslednjiRawGovorRef.current = transkript;
+            tekuciGovorRef.current = '';
+
+            // Tekst dobija eksplicitni novi red \n
+            const noviTekstSaRedom = potvrdjeniRedoviRef.current.join('\n') + '\n';
+            rukujIzmenomTeksta(noviTekstSaRedom);
+
+            // Obaveštenje za korisnika
+            const brStavki = potvrdjeniRedoviRef.current.length;
+            setPauzaStatusPoruka(`↵ Pauza 3s: Stavka ${brStavki} fiksirana u specifikaciji! Sledeći red je spreman.`);
+            setTimeout(() => {
+              setPauzaStatusPoruka('');
+            }, 3500);
+          }
+        }, 3000);
       },
       onError: (err: string) => {
         console.warn('VoiceService error:', err);
         setJeSnimanjeAktivno(false);
+        jeSnimanjeAktivnoRef.current = false;
+        if (pauzaTajmerRef.current) {
+          clearTimeout(pauzaTajmerRef.current);
+          pauzaTajmerRef.current = null;
+        }
         if (err.includes('odbijen') || err.includes('not-allowed')) {
           Alert.alert(
             'Dozvola za mikrofon',
@@ -263,17 +324,35 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
       },
       onEnd: () => {
         setJeSnimanjeAktivno(false);
+        jeSnimanjeAktivnoRef.current = false;
+        if (pauzaTajmerRef.current) {
+          clearTimeout(pauzaTajmerRef.current);
+          pauzaTajmerRef.current = null;
+        }
       }
     });
 
     if (!uspeh) {
       setJeSnimanjeAktivno(false);
+      jeSnimanjeAktivnoRef.current = false;
     }
   };
 
   const zaustaviSnimanje = () => {
+    if (pauzaTajmerRef.current) {
+      clearTimeout(pauzaTajmerRef.current);
+      pauzaTajmerRef.current = null;
+    }
+    // Ako je ostao nezaključen segment govora, zaključujemo ga u redove
+    if (tekuciGovorRef.current && tekuciGovorRef.current.trim().length > 0) {
+      potvrdjeniRedoviRef.current.push(tekuciGovorRef.current.trim());
+      tekuciGovorRef.current = '';
+      const finalan = potvrdjeniRedoviRef.current.join('\n');
+      rukujIzmenomTeksta(finalan);
+    }
     VoiceService.stopListening();
     setJeSnimanjeAktivno(false);
+    jeSnimanjeAktivnoRef.current = false;
   };
 
   const otvoriModalZaGovor = (podrazumevaniTip?: 'posao' | 'nabavka' | 'zakazano') => {
@@ -281,6 +360,14 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
     setAktivniTipSnimanja(tip);
     setIzgovoreniTekst('');
     setParsirano(null);
+    potvrdjeniRedoviRef.current = [];
+    tekuciGovorRef.current = '';
+    poslednjiRawGovorRef.current = '';
+    setPauzaStatusPoruka('');
+    if (pauzaTajmerRef.current) {
+      clearTimeout(pauzaTajmerRef.current);
+      pauzaTajmerRef.current = null;
+    }
     setModalOtvoren(true);
     // Automatski pokreni nativni ili web mikrofon
     setTimeout(() => {
@@ -289,7 +376,15 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
   };
 
   const zatvoriModal = () => {
+    if (pauzaTajmerRef.current) {
+      clearTimeout(pauzaTajmerRef.current);
+      pauzaTajmerRef.current = null;
+    }
     zaustaviSnimanje();
+    potvrdjeniRedoviRef.current = [];
+    tekuciGovorRef.current = '';
+    poslednjiRawGovorRef.current = '';
+    setPauzaStatusPoruka('');
     setModalOtvoren(false);
     setIzgovoreniTekst('');
     setParsirano(null);
@@ -1188,6 +1283,22 @@ export default function HomeScreen({ korisnik, onOdjava, onOtvoriAdmin }: HomeSc
                 </Text>
               </View>
             )}
+
+            {/* Savet za pametno nabrajanje stavki sa 3s pauzom */}
+            <View style={styles.pametniSavetRed}>
+              <Text style={styles.pametniSavetTekst}>
+                ⚡ <Text style={{ fontWeight: 'bold' }}>Pauza od 3 sec:</Text> Čim napravite pauzu u govoru od 3 sekunde, automatski se kreira nov red u specifikaciji.
+              </Text>
+            </View>
+
+            {/* Vizuelna notifikacija za detektovanu pauzu od 3 sekunde */}
+            {pauzaStatusPoruka ? (
+              <View style={styles.pauzaNotifikacijaKutija}>
+                <Text style={styles.pauzaNotifikacijaTekst}>
+                  {pauzaStatusPoruka}
+                </Text>
+              </View>
+            ) : null}
 
             {/* Indikator preostalog broja karaktera (do 500) */}
             <View style={styles.brojacKarakteraRed}>
@@ -2502,5 +2613,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     gap: 4
+  },
+  pametniSavetRed: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    marginBottom: 8
+  },
+  pametniSavetTekst: {
+    color: '#1E40AF',
+    fontSize: 12,
+    lineHeight: 16
+  },
+  pauzaNotifikacijaKutija: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#10B981',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  pauzaNotifikacijaTekst: {
+    color: '#065F46',
+    fontSize: 13,
+    fontWeight: 'bold',
+    textAlign: 'center'
   }
 });
